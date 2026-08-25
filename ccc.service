@@ -1,0 +1,14 @@
+# /etc/systemd/system/ccc.service
+[Unit]
+Description=104 Central Command Center (ticketing)
+After=network.target mysql.service
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/ccc
+EnvironmentFile=/opt/ccc/ccc.env
+ExecStart=/opt/ccc/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8092
+Restart=always
+RestartSec=3
+[Install]
+WantedBy=multi-user.target
