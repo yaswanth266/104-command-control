@@ -1,10 +1,13 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 import asyncio
 import datetime
 import contextlib
 from fastapi import FastAPI, APIRouter
 from fastapi.responses import FileResponse, JSONResponse
-from app.api.routers import auth, tickets, dashboard, intake, users, meta, notifications, health
+from app.api.routers import auth, tickets, dashboard, intake, users, meta, notifications, health, admin
 from app.core.config import WEB_DIR
 from app.core.middleware import RequestIdMiddleware
 from app.services.sla_sweep import sla_sweep_loop
@@ -32,6 +35,7 @@ api_router.include_router(users.router)
 api_router.include_router(meta.router)
 api_router.include_router(notifications.router)
 api_router.include_router(health.router)
+api_router.include_router(admin.router)
 
 app.include_router(api_router)
 

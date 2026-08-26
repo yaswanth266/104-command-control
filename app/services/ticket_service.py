@@ -3,8 +3,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.ticket import Ticket
 from app.crud.crud_event import create_event
-from app.core.config import TEAMS, PRIORITY
+from app.core.config import PRIORITY
 from app.crud.crud_ticket import get_tat_map
+from app.crud.crud_team import get_team_map, get_active_team_map
 from app.schemas.ticket import ActionIn
 from app.services.notifications import notify_escalated
 
@@ -58,7 +59,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if not own:
             raise HTTPException(403, "Only the assigned team may acknowledge")
         _require_transition(ticket, act)
-        setf("ACKNOWLEDGED", f"Acknowledged by {user['name']} ({TEAMS.get(ticket.team, ticket.team)})",
+        setf("ACKNOWLEDGED", f"Acknowledged by {user['name']} ({get_team_map(db).get(ticket.team, ticket.team)})",
              status=TARGET_STATUS[act], acknowledged_at=now, first_response_at=ticket.first_response_at or now, assignee=user['username'])
 
     elif act == "start":
@@ -146,10 +147,11 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: a closed ticket must be reopened before it can be re-routed")
         nt = (action_in.team or "").upper()
-        if nt not in TEAMS:
-            raise HTTPException(400, "Unknown team")
-        setf("REASSIGNED", f"Re-routed to {TEAMS[nt]}. {action_in.note or ''}",
-             team=nt, owner=TEAMS[nt], status='ASSIGNED', assigned_at=now, assignee=None)
+        active_teams = get_active_team_map(db)
+        if nt not in active_teams:
+            raise HTTPException(400, "Unknown or inactive team")
+        setf("REASSIGNED", f"Re-routed to {active_teams[nt]}. {action_in.note or ''}",
+             team=nt, owner=active_teams[nt], status='ASSIGNED', assigned_at=now, assignee=None)
 
     elif act == "repriority":
         if role not in ("CC_MANAGER", "CALL_TAKER"):

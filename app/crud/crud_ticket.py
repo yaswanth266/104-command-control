@@ -5,7 +5,8 @@ from sqlalchemy import or_, and_, desc, text
 from sqlalchemy.exc import IntegrityError
 from app.models.ticket import Ticket
 from app.models.config import Config
-from app.core.config import TAT_DEFAULT, AT_RISK_MINUTES, AT_RISK_FRACTION, CRITICAL_MINUTES, CRITICAL_FRACTION
+from app.core.config import TAT_DEFAULT
+from app.crud.crud_settings import get_sla_config
 
 def get_tat_map(db: Session):
     config = db.query(Config).filter(Config.k == 'tat').first()
@@ -40,10 +41,15 @@ def create_ticket(db: Session, fields: dict, max_attempts: int = 5) -> Ticket:
 def get_ticket(db: Session, ticket_id: int):
     return db.query(Ticket).filter(Ticket.id == ticket_id).first()
 
-# Same GREATEST(floor, tat_mins*fraction) window as formatting.sla_tier(), so the
-# queue's "At risk"/"Critical" filters never disagree with a ticket's own pill.
-_RISK_WINDOW_SQL = f"due_at <= DATE_ADD(NOW(), INTERVAL GREATEST({AT_RISK_MINUTES}, tat_mins * {AT_RISK_FRACTION}) MINUTE)"
-_CRITICAL_WINDOW_SQL = f"due_at <= DATE_ADD(NOW(), INTERVAL GREATEST({CRITICAL_MINUTES}, tat_mins * {CRITICAL_FRACTION}) MINUTE)"
+def _risk_window_sql(sla_cfg):
+    """Same GREATEST(floor, tat_mins*fraction) window as formatting.sla_tier(),
+    built per-call since thresholds are admin-editable (ccc_config), not baked
+    in at import time - so the queue's "At risk"/"Critical" filters never
+    disagree with a ticket's own pill."""
+    return f"due_at <= DATE_ADD(NOW(), INTERVAL GREATEST({sla_cfg['at_risk_minutes']}, tat_mins * {sla_cfg['at_risk_fraction']}) MINUTE)"
+
+def _critical_window_sql(sla_cfg):
+    return f"due_at <= DATE_ADD(NOW(), INTERVAL GREATEST({sla_cfg['critical_minutes']}, tat_mins * {sla_cfg['critical_fraction']}) MINUTE)"
 
 def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope: str = "", q: str = "",
                  priority: str = "", category: str = "", mmu_vehicle: str = "", district: str = "",
@@ -65,9 +71,9 @@ def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope
     if scope == "breach":
         query = query.filter(and_(Ticket.status != "CLOSED", Ticket.due_at < datetime.datetime.now()))
     elif scope == "risk":
-        query = query.filter(and_(Ticket.status != "CLOSED", Ticket.due_at >= datetime.datetime.now(), text(_RISK_WINDOW_SQL)))
+        query = query.filter(and_(Ticket.status != "CLOSED", Ticket.due_at >= datetime.datetime.now(), text(_risk_window_sql(get_sla_config(db)))))
     elif scope == "critical":
-        query = query.filter(and_(Ticket.status != "CLOSED", Ticket.due_at >= datetime.datetime.now(), text(_CRITICAL_WINDOW_SQL)))
+        query = query.filter(and_(Ticket.status != "CLOSED", Ticket.due_at >= datetime.datetime.now(), text(_critical_window_sql(get_sla_config(db)))))
     elif scope == "escalated":
         query = query.filter(Ticket.escalated == True)
 

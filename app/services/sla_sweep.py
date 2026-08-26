@@ -6,18 +6,19 @@ from app.db.database import SessionLocal
 from app.models.ticket import Ticket
 from app.crud.crud_event import create_event
 from app.crud.crud_notification import create_notification, notification_exists
-from app.core.config import SLA_SWEEP_SECONDS, RESOLVED_FOLLOWUP_HOURS
+from app.crud.crud_settings import get_sla_config
+from app.core.config import SLA_SWEEP_SECONDS
 from app.services.formatting import sla_tier
 
 logger = logging.getLogger("ccc.sla_sweep")
 
 _SYSTEM_ACTOR = {"username": "sla-sweep", "role": "SYSTEM", "name": "SLA monitor"}
 
-def _sweep_open_tickets(db: Session, now: datetime.datetime):
+def _sweep_open_tickets(db: Session, now: datetime.datetime, sla_cfg: dict):
     tickets = db.query(Ticket).filter(Ticket.status != "CLOSED", Ticket.due_at.isnot(None)).all()
     for t in tickets:
         mins_left = (t.due_at - now).total_seconds() / 60.0
-        tier = sla_tier(mins_left, t.tat_mins)
+        tier = sla_tier(mins_left, t.tat_mins, sla_cfg)
 
         if tier == "BREACHED":
             if not notification_exists(db, t.id, "BREACHED"):
@@ -38,13 +39,13 @@ def _sweep_open_tickets(db: Session, now: datetime.datetime):
             if not notification_exists(db, t.id, "AT_RISK"):
                 create_notification(db, t.team, t.id, "AT_RISK", f"Ticket {t.ticket_no} is at risk of breaching TAT ({round(mins_left)}m left)")
 
-def _sweep_pending_confirmations(db: Session, now: datetime.datetime):
-    cutoff = now - datetime.timedelta(hours=RESOLVED_FOLLOWUP_HOURS)
+def _sweep_pending_confirmations(db: Session, now: datetime.datetime, followup_hours: float):
+    cutoff = now - datetime.timedelta(hours=followup_hours)
     stalled = db.query(Ticket).filter(Ticket.status == "RESOLVED", Ticket.resolved_at.isnot(None), Ticket.resolved_at <= cutoff).all()
     for t in stalled:
         if not notification_exists(db, t.id, "PENDING_CONFIRMATION"):
             create_notification(db, t.team, t.id, "PENDING_CONFIRMATION",
-                                 f"Ticket {t.ticket_no} has been awaiting MMU confirmation for over {RESOLVED_FOLLOWUP_HOURS}h")
+                                 f"Ticket {t.ticket_no} has been awaiting MMU confirmation for over {followup_hours}h")
 
 def run_sla_sweep_once():
     """One sweep pass over all open tickets. Safe to call repeatedly - every
@@ -53,8 +54,9 @@ def run_sla_sweep_once():
     db = SessionLocal()
     try:
         now = datetime.datetime.now()
-        _sweep_open_tickets(db, now)
-        _sweep_pending_confirmations(db, now)
+        sla_cfg = get_sla_config(db)
+        _sweep_open_tickets(db, now, sla_cfg)
+        _sweep_pending_confirmations(db, now, sla_cfg["resolved_followup_hours"])
     except Exception:
         logger.exception("SLA sweep pass failed")
         db.rollback()

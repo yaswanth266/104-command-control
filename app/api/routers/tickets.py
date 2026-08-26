@@ -6,10 +6,13 @@ from app.api.deps import get_current_user
 from app.schemas.ticket import TicketIn, ActionIn
 from app.crud.crud_ticket import get_tickets, get_ticket, get_tat_map, create_ticket as insert_ticket
 from app.crud.crud_event import get_events_by_ticket, create_event
+from app.crud.crud_category import get_routing_map, get_category_map
+from app.crud.crud_team import get_team_map
+from app.crud.crud_settings import get_sla_config
 from app.services.ticket_service import process_ticket_action
 from app.services.formatting import enrich
 from app.services.notifications import notify_new_ticket
-from app.core.config import ROUTING, PRIORITY
+from app.core.config import PRIORITY
 import datetime
 
 router = APIRouter(prefix="/ticket", tags=["tickets"])
@@ -20,14 +23,15 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
         raise HTTPException(403, "Only the Call Taker or CC Manager may register a call")
     cat = b.category.strip().upper()
-    if cat not in ROUTING:
+    routing = get_routing_map(db)
+    if cat not in routing:
         raise HTTPException(400, "Unknown issue category")
     if b.priority not in PRIORITY:
         raise HTTPException(400, "Priority must be P1-P4")
     if not (b.problem or "").strip():
         raise HTTPException(400, "Nature of the problem is required")
-        
-    r = ROUTING[cat]
+
+    r = routing[cat]
     tat = get_tat_map(db).get(b.priority, 1440)
     now = datetime.datetime.now()
 
@@ -68,7 +72,9 @@ def list_tickets(status: str = "", team: str = "", scope: str = "", q_: str = ""
     tickets, total = get_tickets(db, current_user, status=status, team=team, scope=scope, q=q_,
                                   priority=priority, category=category, mmu_vehicle=mmu_vehicle, district=district,
                                   date_from=date_from, date_to=date_to, page=page, page_size=page_size)
-    return {"count": len(tickets), "total": total, "page": page, "page_size": page_size, "rows": [enrich(t) for t in tickets]}
+    category_map, team_map, sla_cfg = get_category_map(db), get_team_map(db), get_sla_config(db)
+    return {"count": len(tickets), "total": total, "page": page, "page_size": page_size,
+            "rows": [enrich(t, category_map, team_map, sla_cfg) for t in tickets]}
 
 @router.get("/{tid}")
 def get_one_ticket(tid: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
@@ -85,13 +91,14 @@ def get_one_ticket(tid: int, db: Session = Depends(get_db), current_user: dict =
         if isinstance(ev_dict.get("at"), datetime.datetime):
             ev_dict["at"] = ev_dict["at"].strftime("%Y-%m-%d %H:%M")
         evs_out.append(ev_dict)
-        
-    return {"ticket": enrich(t), "events": evs_out}
+
+    enriched = enrich(t, get_category_map(db), get_team_map(db), get_sla_config(db))
+    return {"ticket": enriched, "events": evs_out}
 
 @router.post("/action")
 def ticket_action(b: ActionIn, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     ticket = get_ticket(db, b.id)
     if not ticket:
         raise HTTPException(404, "Ticket not found")
-    
+
     return process_ticket_action(db, ticket, current_user, b)

@@ -7,7 +7,10 @@ import pymysql
 import pytest
 
 os.environ.setdefault("CCC_SECRET", "test-secret-for-pytest-only-do-not-use-elsewhere")
+os.environ.setdefault("CCC_INTAKE_KEY", "test-intake-key-for-pytest-only")
 os.environ["CCC_DB_NAME"] = "ccc_test"
+
+INTAKE_KEY = os.environ["CCC_INTAKE_KEY"]
 
 _DB_HOST = os.environ.get("CCC_DB_HOST", "127.0.0.1")
 _DB_USER = os.environ.get("CCC_DB_USER", "root")
@@ -27,10 +30,31 @@ def _ensure_test_db():
 _ensure_test_db()
 
 from app.db.database import Base, engine, SessionLocal  # noqa: E402
-from app.models import User, Ticket, Event, Notification  # noqa: E402
+from app.models import User, Ticket, Event, Notification, Team, Category  # noqa: E402
 from app.core.security import hash_pw, mktoken  # noqa: E402
 
 ROLES = ["CC_MANAGER", "CALL_TAKER", "SERVICE", "APPLICATION", "QUALITY", "TECHNICAL", "NETWORK", "FIELD_OPS", "FLEET"]
+
+# Mirrors alembic/versions/1913fabf3a6b's seed data (the same routing matrix
+# that used to be the hardcoded ROUTING/TEAMS dicts) - Base.metadata.create_all
+# only builds schema, not seed rows, so tests need their own copy of this.
+_SEED_TEAMS = [
+    ("SERVICE", "Service Team"), ("QUALITY", "Quality / Application"),
+    ("APPLICATION", "Application Team"), ("TECHNICAL", "Technical Team"),
+    ("NETWORK", "Network Team"), ("FIELD_OPS", "Field Operations Team"),
+    ("FLEET", "Fleet Team"), ("CC_MANAGER", "CC Manager / Technical Team"),
+]
+_SEED_CATEGORIES = [
+    ("MACHINE", "Machine / Instrument Breakdown", "SERVICE", "Service Engineer"),
+    ("QC", "QC Failure / Quality Issue", "QUALITY", "Quality Person / Application Person"),
+    ("APPLICATION", "Application / Software Issue", "APPLICATION", "Application Person"),
+    ("TECHNICAL", "General Technical Issue", "TECHNICAL", "Technical Team (5 members)"),
+    ("LIS", "LIS Connection / Data Transfer", "NETWORK", "Network Team (4 members)"),
+    ("NETWORK", "Network / Connectivity Issue", "NETWORK", "Network Team (4 members)"),
+    ("FIELD", "Field Operational Issue", "FIELD_OPS", "Field Operations Team"),
+    ("FLEET", "Fleet / Vehicle Issue", "FLEET", "Fleet Team"),
+    ("OTHER", "Other / Unclear Issue", "CC_MANAGER", "CC Manager / Technical Team"),
+]
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -41,6 +65,10 @@ def _schema():
     for role in ROLES:
         db.add(User(username=role.lower(), name=role.title().replace("_", " "), role=role,
                      pw=hash_pw("testpass123"), active=True))
+    for code, name in _SEED_TEAMS:
+        db.add(Team(code=code, name=name, is_active=True))
+    for code, label, team_code, owner in _SEED_CATEGORIES:
+        db.add(Category(code=code, label=label, team_code=team_code, default_owner=owner, is_active=True))
     db.commit()
     db.close()
     yield

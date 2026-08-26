@@ -1,22 +1,22 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from app.db.database import get_db
-from app.api.deps import get_current_user
-from app.core.config import AT_RISK_MINUTES, AT_RISK_FRACTION, CRITICAL_MINUTES, CRITICAL_FRACTION
+from app.api.deps import require_admin
+from app.crud.crud_settings import get_sla_config
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-# Same GREATEST(floor, tat_mins*fraction) window as formatting.sla_tier() / crud_ticket's
-# queue filters, so every screen agrees on what "at risk" and "critical" mean.
-_AT_RISK_WINDOW_SQL = f"due_at<=DATE_ADD(NOW(),INTERVAL GREATEST({AT_RISK_MINUTES}, tat_mins*{AT_RISK_FRACTION}) MINUTE)"
-_CRITICAL_WINDOW_SQL = f"due_at<=DATE_ADD(NOW(),INTERVAL GREATEST({CRITICAL_MINUTES}, tat_mins*{CRITICAL_FRACTION}) MINUTE)"
-
 @router.get("")
-def dashboard(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def dashboard(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     """SOP section 10 - daily CC Manager monitoring + section 15 KPIs."""
-    if current_user["role"] != "CC_MANAGER":
-        raise HTTPException(403, "Daily Monitoring is restricted to the CC Manager")
+    # Same GREATEST(floor, tat_mins*fraction) window as formatting.sla_tier() /
+    # crud_ticket's queue filters, so every screen agrees on "at risk"/"critical" -
+    # built per-call since thresholds are now admin-editable (ccc_config), not
+    # baked in at import time.
+    sla = get_sla_config(db)
+    at_risk_sql = f"due_at<=DATE_ADD(NOW(),INTERVAL GREATEST({sla['at_risk_minutes']}, tat_mins*{sla['at_risk_fraction']}) MINUTE)"
+    critical_sql = f"due_at<=DATE_ADD(NOW(),INTERVAL GREATEST({sla['critical_minutes']}, tat_mins*{sla['critical_fraction']}) MINUTE)"
 
     def q(sql, one=False):
         result = db.execute(text(sql))
@@ -37,8 +37,8 @@ def dashboard(db: Session = Depends(get_db), current_user: dict = Depends(get_cu
             "open": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED'"),
             "escalated": o("SELECT COUNT(*) n FROM ccc_ticket WHERE escalated=1 AND status<>'CLOSED'"),
             "breached": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND due_at<NOW()"),
-            "critical": o(f"SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND due_at>=NOW() AND {_CRITICAL_WINDOW_SQL}"),
-            "at_risk": o(f"SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND due_at>=NOW() AND {_AT_RISK_WINDOW_SQL} AND NOT ({_CRITICAL_WINDOW_SQL})"),
+            "critical": o(f"SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND due_at>=NOW() AND {critical_sql}"),
+            "at_risk": o(f"SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND due_at>=NOW() AND {at_risk_sql} AND NOT ({critical_sql})"),
             "pending": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status='PENDING'"),
             "awaiting_confirmation": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status='RESOLVED'"),
             "p1_open": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND priority='P1'"),

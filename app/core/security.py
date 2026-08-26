@@ -8,19 +8,15 @@ from typing import Optional
 
 _MIN_SECRET_LEN = 16
 _env_secret = os.environ.get("CCC_SECRET")
-_secret_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".secret")
-
-if _env_secret and len(_env_secret) >= _MIN_SECRET_LEN:
-    SECRET = _env_secret.encode()
-else:
-    if os.path.exists(_secret_file):
-        with open(_secret_file, "r") as f:
-            SECRET = f.read().strip().encode()
-    else:
-        import secrets
-        SECRET = secrets.token_hex(32).encode()
-        with open(_secret_file, "w") as f:
-            f.write(SECRET.decode())
+if not _env_secret or len(_env_secret) < _MIN_SECRET_LEN:
+    raise RuntimeError(
+        f"CCC_SECRET must be set to a random string of at least {_MIN_SECRET_LEN} "
+        "characters (it signs every login token). Refusing to start with it "
+        "missing or weak. A disk-persisted fallback secret is deliberately not "
+        "supported: it would survive a code deploy but not a wiped disk/container, "
+        "silently invalidating every session on infra churn."
+    )
+SECRET = _env_secret.encode()
 
 TOKEN_TTL_SECONDS = int(os.environ.get("CCC_TOKEN_TTL_SECONDS", 12 * 3600))
 

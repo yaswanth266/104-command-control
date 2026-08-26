@@ -1,17 +1,29 @@
-from fastapi import APIRouter, Depends
+from typing import Optional
+import hmac
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.core.config import ROUTING
+from app.core.config import INTAKE_API_KEY
 from app.crud.crud_ticket import get_tat_map, create_ticket
+from app.crud.crud_category import get_routing_map
 from app.crud.crud_event import create_event
 from app.services.notifications import notify_new_ticket
 import datetime
 
 router = APIRouter(prefix="/intake", tags=["intake"])
 
+def _check_intake_key(x_intake_key: Optional[str]):
+    if not INTAKE_API_KEY:
+        raise HTTPException(503, "Intake is not configured: set CCC_INTAKE_KEY")
+    if not x_intake_key or not hmac.compare_digest(x_intake_key, INTAKE_API_KEY):
+        raise HTTPException(401, "Invalid or missing intake key")
+
 @router.post("")
-def intake(body: dict, db: Session = Depends(get_db)):
-    """Unattended intake used by the 104 field application (GOV_EHR) and other external systems."""
+def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str] = Header(None)):
+    """Unattended intake used by the 104 field application (GOV_EHR) and other external systems.
+    Requires the X-Intake-Key header (see CCC_INTAKE_KEY) - coordinate that value
+    with whoever operates the field-app/EHR side before deploying this."""
+    _check_intake_key(x_intake_key)
     cat = (body.get("category") or "").strip().upper()
     _MAP = {"DEVICE": "MACHINE", "MACHINE": "MACHINE", "INSTRUMENT": "MACHINE", "QC": "QC", "QUALITY": "QC",
             "APP": "APPLICATION", "APPLICATION": "APPLICATION", "SOFTWARE": "APPLICATION",
@@ -24,7 +36,8 @@ def intake(body: dict, db: Session = Depends(get_db)):
     pr = {"CRITICAL": "P1", "HIGH": "P2", "NORMAL": "P3", "MEDIUM": "P3", "LOW": "P4",
           "P1": "P1", "P2": "P2", "P3": "P3", "P4": "P4"}.get(pr, "P3")
           
-    r = ROUTING.get(cat, ROUTING["OTHER"])
+    routing = get_routing_map(db)
+    r = routing.get(cat, routing["OTHER"])
     tat = get_tat_map(db).get(pr, 1440)
     now = datetime.datetime.now()
 

@@ -1,22 +1,19 @@
 import time
 import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.db.database import get_db
-from app.api.deps import get_current_user
+from app.api.deps import require_admin
 
 router = APIRouter(prefix="/health", tags=["health"])
 
 @router.get("/detailed")
-def detailed_health(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+def detailed_health(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     """Deeper readiness check, separate from the bare /health liveness probe
     nginx/systemd use. CC-Manager-only, same restriction as Daily Monitoring.
     There is no LIS/CDA integration in this codebase to monitor, so that's
     intentionally not reported here rather than faked."""
-    if current_user["role"] != "CC_MANAGER":
-        raise HTTPException(403, "Detailed health is restricted to the CC Manager")
-
     db_ok, db_latency_ms, db_error = False, None, None
     try:
         t0 = time.monotonic()

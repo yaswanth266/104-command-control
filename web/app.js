@@ -1,6 +1,7 @@
 var API='/cccapi', TOK=sessionStorage.getItem('ccc_tok')||'', ME=null, META=null, TAB='queue', ROWS=[], ROWTOTAL=0, DASH=null,
   FILT={status:'open',scope:'',priority:'',category:'',mmu_vehicle:'',district:'',date_from:'',date_to:'',q:'',page:1,page_size:50},
-  NOTIFS=[], NOTIF_OPEN=false, POLL_TIMER=null, CLOCK_TIMER=null;
+  NOTIFS=[], NOTIF_OPEN=false, POLL_TIMER=null, CLOCK_TIMER=null,
+  ADMIN_TAB='teams', ADMIN_TEAMS=[], ADMIN_CATEGORIES=[], ADMIN_SLA=null, ADMIN_USERS=[], ADMIN_ROLES=[], ADMIN_AUDIT=[], ADMIN_LOADED={};
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function api(m,p,b){var h={'Content-Type':'application/json'};if(TOK)h.Authorization='Bearer '+TOK;
   return fetch(API+p,{method:m,headers:h,body:b?JSON.stringify(b):undefined}).then(function(r){
@@ -25,14 +26,17 @@ function roleLabel(r){return ({CC_MANAGER:'CC Manager',CALL_TAKER:'Call Taker',S
 function tabsFor(){var t=[['queue','Ticket Queue']];
   if(ME.role==='CALL_TAKER'||ME.role==='CC_MANAGER')t.push(['new','Register Call']);
   if(ME.role==='CC_MANAGER')t.push(['dash','Daily Monitoring']);
-  t.push(['matrix','Routing Matrix']);return t;}
+  t.push(['matrix','Routing Matrix']);
+  if(ME.role==='CC_MANAGER')t.push(['admin','Admin Portal']);
+  return t;}
 function render(){document.getElementById('tabs').innerHTML=tabsFor().map(function(x){return '<button class="tab'+(TAB===x[0]?' on':'')+'" onclick="go(\''+x[0]+'\')">'+esc(x[1])+'</button>';}).join('');
   var b=document.getElementById('body');
   if(TAB==='new'){b.innerHTML=viewNew();setTimeout(previewRoute,0);}
   else if(TAB==='dash')b.innerHTML=viewDash();
   else if(TAB==='matrix')b.innerHTML=viewMatrix();
+  else if(TAB==='admin')b.innerHTML=viewAdmin();
   else b.innerHTML=viewQueue();}
-function go(t){TAB=t;render();load();}
+function go(t){TAB=t;render();load();if(t==='admin')loadAdminSection(ADMIN_TAB);}
 function queueQS(){
   var keys=['status','scope','priority','category','mmu_vehicle','district','date_from','date_to','page','page_size'];
   return keys.map(function(k){return k+'='+encodeURIComponent(FILT[k]||'');}).join('&')+'&q_='+encodeURIComponent(FILT.q||'');}
@@ -262,5 +266,166 @@ function viewMatrix(){
     '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">Ticket status flow</h4>'+
     '<div class="muted" style="margin-bottom:12px">SOP §11</div><div style="display:flex;gap:8px;flex-wrap:wrap">'+
     META.flow.map(function(s,i){return '<span class="pill p-mut">'+(i+1)+'. '+esc(s.replace(/_/g,' '))+'</span>';}).join('<span class="muted">→</span>')+'</div></div>';}
+
+/* ---------- admin portal ----------
+   goAdmin only auto-fetches on the FIRST visit to a sub-tab: fetch-then-render
+   is async, and if it re-rendered on every visit it could land while the admin
+   is mid-fill on a form on a slow connection, silently wiping their input
+   (a real double-render race, not hypothetical - caught by hand-testing this
+   exact flow). Revisits show cached data instantly; "Refresh" re-fetches
+   explicitly. Actions (create/update) still refresh immediately afterward -
+   that's a deliberate, user-initiated reload of a form that just submitted,
+   not a background one racing live typing. */
+function goAdmin(t){ADMIN_TAB=t;render();if(!ADMIN_LOADED[t])loadAdminSection(t);}
+function loadAdminSection(t){
+  if(t==='teams')api('GET','/admin/teams').then(function(d){ADMIN_TEAMS=d;ADMIN_LOADED.teams=true;if(ADMIN_TAB==='teams')render();});
+  else if(t==='categories')api('GET','/admin/teams').then(function(d){ADMIN_TEAMS=d;
+    api('GET','/admin/categories').then(function(d2){ADMIN_CATEGORIES=d2;ADMIN_LOADED.categories=true;if(ADMIN_TAB==='categories')render();});});
+  else if(t==='sla')api('GET','/admin/sla').then(function(d){ADMIN_SLA=d;ADMIN_LOADED.sla=true;if(ADMIN_TAB==='sla')render();});
+  else if(t==='users')api('GET','/admin/roles').then(function(r){ADMIN_ROLES=r;
+    api('GET','/users').then(function(d){ADMIN_USERS=d;ADMIN_LOADED.users=true;if(ADMIN_TAB==='users')render();});});
+  else if(t==='audit')api('GET','/admin/audit').then(function(d){ADMIN_AUDIT=d;ADMIN_LOADED.audit=true;if(ADMIN_TAB==='audit')render();});}
+function viewAdmin(){
+  var subs=[['teams','Teams'],['categories','Categories'],['sla','SLA & TAT'],['users','Users'],['audit','Audit Log']];
+  var bar='<div class="tabs" style="margin-bottom:12px">'+subs.map(function(s){return '<button class="tab'+(ADMIN_TAB===s[0]?' on':'')+'" onclick="goAdmin(\''+s[0]+'\')">'+s[1]+'</button>';}).join('')+
+    '<button class="btn o sm" style="margin-left:auto" onclick="loadAdminSection(ADMIN_TAB)">&#8635; Refresh</button></div>';
+  var body='';
+  if(!ADMIN_LOADED[ADMIN_TAB])body='<div class="card"><div class="empty">Loading…</div></div>';
+  else if(ADMIN_TAB==='teams')body=viewAdminTeams();
+  else if(ADMIN_TAB==='categories')body=viewAdminCategories();
+  else if(ADMIN_TAB==='sla')body=viewAdminSla();
+  else if(ADMIN_TAB==='users')body=viewAdminUsers();
+  else if(ADMIN_TAB==='audit')body=viewAdminAudit();
+  return bar+body;}
+
+function viewAdminTeams(){
+  var rows=ADMIN_TEAMS.map(function(t){
+    return '<tr><td><b>'+esc(t.code)+'</b></td><td>'+esc(t.name)+'</td>'+
+      '<td>'+(t.is_active?'<span class="pill p-ok">Active</span>':'<span class="pill p-mut">Inactive</span>')+'</td>'+
+      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminRenameTeam(\''+t.code+'\')">Rename</button>'+
+      '<button class="btn '+(t.is_active?'r':'g')+' sm" onclick="adminToggleTeam(\''+t.code+'\','+(!t.is_active)+')">'+(t.is_active?'Deactivate':'Activate')+'</button></td></tr>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Teams</h4>'+
+    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Name</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+    '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add team</h4><div class="grid3">'+
+    '<div class="fld"><label>Code</label><input id="at_code" placeholder="PHARMACY"></div>'+
+    '<div class="fld"><label>Name</label><input id="at_name" placeholder="Pharmacy Team"></div>'+
+    '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateTeam()">Add team</button></div>'+
+    '</div></div>';}
+function adminCreateTeam(){
+  var code=gv('at_code'),name=gv('at_name');
+  if(!code||!name)return toast('Code and name are required');
+  api('POST','/admin/teams',{code:code,name:name}).then(function(){toast('Team added');loadAdminSection('teams');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminRenameTeam(code){var name=prompt('New name for '+code+':');if(!name)return;
+  api('PUT','/admin/teams/'+code,{name:name}).then(function(){toast('Renamed');loadAdminSection('teams');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminToggleTeam(code,active){
+  api('PUT','/admin/teams/'+code,{is_active:active}).then(function(){toast(active?'Activated':'Deactivated');loadAdminSection('teams');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+
+function viewAdminCategories(){
+  var teamOpts=function(sel){return ADMIN_TEAMS.filter(function(t){return t.is_active;}).map(function(t){return '<option value="'+t.code+'"'+(t.code===sel?' selected':'')+'>'+esc(t.name)+'</option>';}).join('');};
+  var rows=ADMIN_CATEGORIES.map(function(c){
+    return '<tr><td><b>'+esc(c.code)+'</b></td><td>'+esc(c.label)+'</td>'+
+      '<td><select id="ac_team_'+c.code+'">'+teamOpts(c.team_code)+'</select> <button class="btn o sm" onclick="adminMoveCategory(\''+c.code+'\')">Apply</button></td>'+
+      '<td>'+esc(c.default_owner||'')+'</td>'+
+      '<td>'+(c.is_active?'<span class="pill p-ok">Active</span>':'<span class="pill p-mut">Inactive</span>')+'</td>'+
+      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminEditCategory(\''+c.code+'\')">Edit</button>'+
+      '<button class="btn '+(c.is_active?'r':'g')+' sm" onclick="adminToggleCategory(\''+c.code+'\','+(!c.is_active)+')">'+(c.is_active?'Deactivate':'Activate')+'</button></td></tr>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Categories</h4>'+
+    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Label</th><th>Team</th><th>Owner</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+    '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add category</h4><div class="grid3">'+
+    '<div class="fld"><label>Code</label><input id="ac_code" placeholder="MEDSTOCK"></div>'+
+    '<div class="fld"><label>Label</label><input id="ac_label" placeholder="Medicine stock issue"></div>'+
+    '<div class="fld"><label>Team</label><select id="ac_new_team">'+teamOpts()+'</select></div>'+
+    '<div class="fld"><label>Default owner</label><input id="ac_owner" placeholder="Pharmacist"></div>'+
+    '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateCategory()">Add category</button></div>'+
+    '</div></div>';}
+function adminCreateCategory(){
+  var code=gv('ac_code'),label=gv('ac_label'),team=document.getElementById('ac_new_team').value,owner=gv('ac_owner');
+  if(!code||!label)return toast('Code and label are required');
+  api('POST','/admin/categories',{code:code,label:label,team_code:team,default_owner:owner}).then(function(){toast('Category added');loadAdminSection('categories');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminMoveCategory(code){
+  var team=document.getElementById('ac_team_'+code).value;
+  api('PUT','/admin/categories/'+code,{team_code:team}).then(function(){toast('Re-routed');loadAdminSection('categories');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminEditCategory(code){
+  var c=ADMIN_CATEGORIES.find(function(x){return x.code===code;});
+  var label=prompt('Label:',c.label);if(label===null)return;
+  var owner=prompt('Default owner:',c.default_owner||'');if(owner===null)return;
+  api('PUT','/admin/categories/'+code,{label:label,default_owner:owner}).then(function(){toast('Updated');loadAdminSection('categories');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminToggleCategory(code,active){
+  api('PUT','/admin/categories/'+code,{is_active:active}).then(function(){toast(active?'Activated':'Deactivated');loadAdminSection('categories');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+
+function viewAdminSla(){
+  if(!ADMIN_SLA)return '<div class="card"><div class="empty">Loading…</div></div>';
+  var tat=ADMIN_SLA.tat||{},sla=ADMIN_SLA.sla||{};
+  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">TAT per priority (minutes)</h4>'+
+    '<div class="muted" style="margin-bottom:12px">Approved SLA/TAT values — editable once the official SLA is signed off.</div><div class="grid3">'+
+    Object.keys(tat).map(function(k){return '<div class="fld"><label>'+k+'</label><input id="sla_tat_'+k+'" value="'+esc(tat[k])+'"></div>';}).join('')+
+    '</div></div>'+
+    '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">SLA tiers</h4>'+
+    '<div class="muted" style="margin-bottom:12px">A ticket goes AT RISK / CRITICAL once time-left drops to or below max(floor minutes, TAT &times; fraction).</div>'+
+    '<div class="grid3">'+
+    '<div class="fld"><label>At-risk floor (min)</label><input id="sla_arm" value="'+esc(sla.at_risk_minutes)+'"></div>'+
+    '<div class="fld"><label>At-risk fraction (0-1)</label><input id="sla_arf" value="'+esc(sla.at_risk_fraction)+'"></div>'+
+    '<div class="fld"><label>Critical floor (min)</label><input id="sla_cm" value="'+esc(sla.critical_minutes)+'"></div>'+
+    '<div class="fld"><label>Critical fraction (0-1)</label><input id="sla_cf" value="'+esc(sla.critical_fraction)+'"></div>'+
+    '<div class="fld"><label>Resolved follow-up (hours)</label><input id="sla_rfh" value="'+esc(sla.resolved_followup_hours)+'"></div>'+
+    '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminSaveSla()">Save</button></div>'+
+    '</div></div>';}
+function adminSaveSla(){
+  var tat={};Object.keys(ADMIN_SLA.tat||{}).forEach(function(k){tat[k]=gv('sla_tat_'+k);});
+  var sla={at_risk_minutes:gv('sla_arm'),at_risk_fraction:gv('sla_arf'),critical_minutes:gv('sla_cm'),critical_fraction:gv('sla_cf'),resolved_followup_hours:gv('sla_rfh')};
+  api('PUT','/admin/sla',{tat:tat,sla:sla}).then(function(){toast('Saved');loadAdminSection('sla');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+
+function viewAdminUsers(){
+  var roleOpts=function(sel){return ADMIN_ROLES.map(function(r){return '<option value="'+r+'"'+(r===sel?' selected':'')+'>'+esc(roleLabel(r))+'</option>';}).join('');};
+  var rows=ADMIN_USERS.map(function(u){
+    return '<tr><td><b>'+esc(u.username)+'</b></td><td>'+esc(u.name)+'</td>'+
+      '<td><select id="au_role_'+u.id+'">'+roleOpts(u.role)+'</select> <button class="btn o sm" onclick="adminChangeRole('+u.id+')">Apply</button></td>'+
+      '<td>'+(u.active?'<span class="pill p-ok">Active</span>':'<span class="pill p-mut">Inactive</span>')+'</td>'+
+      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminResetPassword('+u.id+')">Reset password</button>'+
+      '<button class="btn '+(u.active?'r':'g')+' sm" onclick="adminToggleUser('+u.id+','+(!u.active)+')">'+(u.active?'Deactivate':'Activate')+'</button></td></tr>';
+  }).join('');
+  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Users</h4>'+
+    '<div style="overflow-x:auto"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div></div>'+
+    '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add user</h4><div class="grid3">'+
+    '<div class="fld"><label>Username</label><input id="au_uname" placeholder="tech6"></div>'+
+    '<div class="fld"><label>Name</label><input id="au_name"></div>'+
+    '<div class="fld"><label>Role</label><select id="au_new_role">'+roleOpts()+'</select></div>'+
+    '<div class="fld"><label>Phone</label><input id="au_phone"></div>'+
+    '<div class="fld"><label>Temporary password</label><input id="au_pw" placeholder="min 8 characters"></div>'+
+    '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateUser()">Add user</button></div>'+
+    '</div></div>';}
+function adminCreateUser(){
+  var username=gv('au_uname'),name=gv('au_name'),role=document.getElementById('au_new_role').value,phone=gv('au_phone'),pw=gv('au_pw');
+  if(!username||!name||!pw)return toast('Username, name and password are required');
+  api('POST','/admin/users',{username:username,name:name,role:role,phone:phone,password:pw}).then(function(){toast('User created');loadAdminSection('users');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminChangeRole(id){var role=document.getElementById('au_role_'+id).value;
+  api('PUT','/admin/users/'+id,{role:role}).then(function(){toast('Role updated');loadAdminSection('users');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminToggleUser(id,active){
+  api('PUT','/admin/users/'+id,{active:active}).then(function(){toast(active?'Activated':'Deactivated');loadAdminSection('users');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+function adminResetPassword(id){var pw=prompt('New temporary password (min 8 characters):');if(!pw)return;
+  api('PUT','/admin/users/'+id,{password:pw}).then(function(){toast('Password reset');})
+   .catch(function(e){toast(typeof e==='string'?e:'Failed');});}
+
+function viewAdminAudit(){
+  if(!ADMIN_AUDIT.length)return '<div class="card"><div class="empty">No admin actions recorded yet.</div></div>';
+  var rows=ADMIN_AUDIT.map(function(e){
+    return '<tr><td>'+esc(e.at)+'</td><td>'+esc(e.actor)+'<div class="muted">'+esc(e.actor_role)+'</div></td>'+
+      '<td>'+esc(e.action)+'</td><td>'+esc(e.entity_type)+' · '+esc(e.entity_id)+'</td><td>'+esc(e.detail||'')+'</td></tr>';
+  }).join('');
+  return '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Recent admin activity</h4>'+
+    '<div style="overflow-x:auto"><table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Entity</th><th>Detail</th></tr></thead><tbody>'+rows+'</tbody></table></div></div>';}
 
 if(TOK){boot();}
