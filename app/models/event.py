@@ -12,3 +12,5 @@ class Event(Base):
     actor_role = Column(String(32))
     action = Column(String(48))
     detail = Column(Text)
+    old_status = Column(String(32))
+    new_status = Column(String(32))

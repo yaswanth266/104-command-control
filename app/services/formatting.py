@@ -1,5 +1,18 @@
 import datetime
-from app.core.config import ROUTING, TEAMS
+from app.core.config import ROUTING, TEAMS, AT_RISK_MINUTES, AT_RISK_FRACTION, CRITICAL_MINUTES, CRITICAL_FRACTION
+
+def sla_tier(mins_left, tat_mins):
+    """Single source of truth for SLA state, shared by the per-ticket pill,
+    the queue risk/critical filters and the SLA sweep. BREACHED < CRITICAL <
+    AT RISK < ON TRACK, each a widening window around due_at."""
+    tat_mins = tat_mins or 240
+    if mins_left < 0:
+        return "BREACHED"
+    if mins_left <= max(CRITICAL_MINUTES, tat_mins * CRITICAL_FRACTION):
+        return "CRITICAL"
+    if mins_left <= max(AT_RISK_MINUTES, tat_mins * AT_RISK_FRACTION):
+        return "AT RISK"
+    return "ON TRACK"
 
 def enrich(ticket):
     """Attach live TAT state for serialization"""
@@ -22,7 +35,7 @@ def enrich(ticket):
             d = datetime.datetime.strptime(due, "%Y-%m-%d %H:%M")
             left = (d - now).total_seconds() / 60.0
             t["mins_left"] = round(left)
-            t["tat_state"] = "BREACHED" if left < 0 else ("AT RISK" if left <= max(30, (t.get("tat_mins") or 240) * 0.2) else "ON TRACK")
+            t["tat_state"] = sla_tier(left, t.get("tat_mins"))
         except Exception:
             pass
     elif t.get("status") == "CLOSED":
