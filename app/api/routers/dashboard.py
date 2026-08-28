@@ -46,6 +46,10 @@ def dashboard(db: Session = Depends(get_db), current_user: dict = Depends(requir
             # tickets nobody has picked up so the CC Manager can intervene
             # manually without needing an auto-dispatch engine.
             "unassigned": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND (assignee IS NULL OR assignee='')"),
+            # LT self-service: tickets an LT raised that their CDA team didn't
+            # resolve in time (manually or auto-escalated) - a filter on
+            # existing data (escalated + source), not a new queue mechanism.
+            "escalated_from_field": o("SELECT COUNT(*) n FROM ccc_ticket WHERE escalated=1 AND source='LT_PORTAL' AND status<>'CLOSED'"),
         },
         "by_category": q("SELECT category, COUNT(*) n, SUM(status<>'CLOSED') open_n FROM ccc_ticket GROUP BY category ORDER BY n DESC"),
         "by_team": q("SELECT team, COUNT(*) n, SUM(status<>'CLOSED') open_n, SUM(breached) breach_n, "

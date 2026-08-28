@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.api.deps import get_current_user
-from app.crud import crud_geo, crud_vehicle
+from app.crud import crud_geo, crud_vehicle, crud_reason, crud_machine, crud_category
 
 router = APIRouter(tags=["lookup"])
 
@@ -26,3 +26,18 @@ def list_mandals(district_id: Optional[int] = None, db: Session = Depends(get_db
 def search_vehicles(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     return [{"id": v.id, "registration_no": v.registration_no, "last_mandal_id": v.last_mandal_id}
             for v in crud_vehicle.search_vehicles(db, q)]
+
+@router.get("/reasons")
+def list_reasons(category: str = "", db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    return [{"code": r.code, "category_code": r.category_code, "label": r.label}
+            for r in crud_reason.get_reasons(db, category_code=category or None)]
+
+@router.get("/machines/search")
+def search_machines(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    return [{"id": m.id, "name": m.name} for m in crud_machine.search_machines(db, q)]
+
+@router.get("/lt-categories")
+def list_lt_categories(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """LT self-service portal's category dropdown - only categories flagged
+    visible_to_lt, unlike /meta's full routing map (which is department-facing)."""
+    return [{"code": c.code, "label": c.label} for c in crud_category.get_lt_visible_categories(db)]

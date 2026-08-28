@@ -20,5 +20,5 @@ def is_admin(user: dict) -> bool:
 
 def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     if not is_admin(current_user):
-        raise HTTPException(status_code=403, detail="This action is restricted to the CC Manager")
+        raise HTTPException(status_code=403, detail="This action is restricted to the Global Team Executive")
     return current_user

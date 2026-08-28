@@ -30,6 +30,12 @@ def get_category_map(db: Session):
     label lookups on tickets that may reference a since-deactivated category."""
     return {c.code: {"label": c.label, "team": c.team_code} for c in db.query(Category).all()}
 
+def get_lt_visible_categories(db: Session):
+    """Active categories flagged visible_to_lt - the LT self-service portal's
+    category dropdown. Everything internal-only (Application, Network, ...)
+    stays hidden by default."""
+    return db.query(Category).filter(Category.is_active == True, Category.visible_to_lt == True).order_by(Category.label).all()
+
 def resolve_team(db: Session, category_code: str, mandal_id: int = None):
     """Routing decision for a NEW ticket: {"team":..., "owner":..., "zone_id":...}
     or None if the category is unknown/inactive. If the category is flagged
@@ -60,7 +66,7 @@ def _require_active_team(db: Session, team_code: str) -> str:
     return team_code
 
 def create_category(db: Session, code: str, label: str, team_code: str, default_owner: str = None,
-                     route_by_zone: bool = False) -> Category:
+                     route_by_zone: bool = False, visible_to_lt: bool = False) -> Category:
     code = (code or "").strip().upper()
     if not code or not (label or "").strip():
         raise HTTPException(400, "Category code and label are required")
@@ -69,14 +75,15 @@ def create_category(db: Session, code: str, label: str, team_code: str, default_
     team_code = _require_active_team(db, team_code)
     c = Category(code=code, label=label.strip(), team_code=team_code,
                  default_owner=(default_owner or "").strip() or None, is_active=True,
-                 route_by_zone=bool(route_by_zone))
+                 route_by_zone=bool(route_by_zone), visible_to_lt=bool(visible_to_lt))
     db.add(c)
     db.commit()
     db.refresh(c)
     return c
 
 def update_category(db: Session, code: str, label: str = None, team_code: str = None,
-                     default_owner: str = None, is_active: bool = None, route_by_zone: bool = None) -> Category:
+                     default_owner: str = None, is_active: bool = None, route_by_zone: bool = None,
+                     visible_to_lt: bool = None) -> Category:
     c = get_category(db, code)
     if not c:
         raise HTTPException(404, "Category not found")
@@ -88,6 +95,8 @@ def update_category(db: Session, code: str, label: str = None, team_code: str = 
         c.team_code = _require_active_team(db, team_code)
     if route_by_zone is not None:
         c.route_by_zone = route_by_zone
+    if visible_to_lt is not None:
+        c.visible_to_lt = visible_to_lt
     if default_owner is not None:
         c.default_owner = default_owner.strip() or None
     if is_active is not None:

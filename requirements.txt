@@ -14,6 +14,7 @@ typing_extensions==4.16.0
 uvicorn==0.52.4
 sqlalchemy>=2.0.0
 alembic>=1.13.0
+python-multipart>=0.0.9
 
 # test-only
 pytest>=8.0.0

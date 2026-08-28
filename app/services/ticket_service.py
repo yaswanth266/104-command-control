@@ -6,7 +6,7 @@ from app.crud.crud_event import create_event
 from app.core.config import PRIORITY
 from app.crud.crud_ticket import get_tat_map
 from app.crud.crud_team import get_team_map, get_active_team_map
-from app.crud.crud_settings import get_sla_config
+from app.crud.crud_settings import get_sla_config, get_dispatch_config
 from app.schemas.ticket import ActionIn
 from app.services.notifications import notify_escalated, notify_assigned
 
@@ -42,6 +42,11 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
     act = action_in.action.lower()
     role = user["role"]
     own = (role == ticket.team) or role in ("CC_MANAGER", "CALL_TAKER")
+    # LT self-service: the LT who raised this ticket may confirm-fixed or
+    # reopen-still-broken on it themselves (see the "confirm"/"reopen"
+    # branches below), even though they're not "own" (not a member of
+    # whichever team the ticket is currently routed to).
+    is_originating_lt = role == "LT" and ticket.created_by == user["username"]
 
     def setf(action_name: str, detail: str, **kwargs):
         old_status = ticket.status
@@ -127,8 +132,8 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
              parts=action_in.parts or ticket.parts)
 
     elif act == "confirm":
-        if not own:
-            raise HTTPException(403, "Only the assigned team may confirm resolution with the MMU")
+        if not (own or is_originating_lt):
+            raise HTTPException(403, "Only the assigned team, or the LT who raised this ticket, may confirm the resolution")
         _require_transition(ticket, act)
         if not (action_in.confirmed_by or "").strip():
             raise HTTPException(400, "SOP: record who at the MMU/field team confirmed the resolution")
@@ -150,19 +155,30 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
             raise HTTPException(403, "Only the assigned team may escalate this ticket")
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: only an open ticket may be escalated")
-        setf("ESCALATED", f"Escalated to CC Manager: {action_in.note or 'TAT risk'}",
+        setf("ESCALATED", f"Escalated to Global Team Executive: {action_in.note or 'TAT risk'}",
              escalated=True, escalated_at=now, escalated_to='CC_MANAGER', escalation_note=action_in.note or "TAT risk")
         notify_escalated(db, ticket, action_in.note or "TAT risk")
 
     elif act == "assign":
-        # Directive, not an access-control gate: a Team Manager points a
-        # ticket at a named engineer on their own team (or CC Manager can, on
-        # any team). Anyone on the team can still act on it exactly as
-        # before - this doesn't lock the ticket to that person, it just tells
-        # the team (via a personal notification) who's expected to run with it.
+        # Directive, not an access-control gate: a Team Executive points a
+        # ticket at a named engineer on their own team (or the Global Team
+        # Executive can, on any team). Anyone on the team can still act on it
+        # exactly as before - this doesn't lock the ticket to that person, it
+        # just tells the team (via a personal notification) who's expected to
+        # run with it.
         is_this_teams_manager = role == ticket.team and bool(user.get("is_team_manager"))
         if not (is_this_teams_manager or role == "CC_MANAGER"):
-            raise HTTPException(403, "Only this team's Team Manager or the CC Manager may assign tickets to a named engineer")
+            raise HTTPException(403, "Only this team's Team Executive or the Global Team Executive may assign tickets to a named engineer")
+        if is_this_teams_manager and get_dispatch_config(db)["local_team_lead_enabled"]:
+            # Local Team Lead routing (future, dormant until enabled): a
+            # Team Executive with no district set is statewide and keeps
+            # full assign rights; one with a district set is a Local Team
+            # Lead and may only assign tickets inside their own district.
+            from app.crud.crud_user import get_user_by_username as _get_actor
+            actor = _get_actor(db, user["username"])
+            if actor and actor.district_id and ticket.district_id and actor.district_id != ticket.district_id:
+                raise HTTPException(403, "This ticket is outside your district - only a statewide Team Executive "
+                                          "or the Global Team Executive may assign it")
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: a closed ticket must be reopened before it can be assigned")
         target_username = (action_in.assignee or "").strip().lower()
@@ -177,7 +193,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
 
     elif act == "reassign":
         if role not in ("CC_MANAGER", "CALL_TAKER"):
-            raise HTTPException(403, "Only the CC Manager or Call Taker may re-route a ticket")
+            raise HTTPException(403, "Only the Global Team Executive or Call Taker may re-route a ticket")
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: a closed ticket must be reopened before it can be re-routed")
         nt = (action_in.team or "").upper()
@@ -189,7 +205,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
 
     elif act == "repriority":
         if role not in ("CC_MANAGER", "CALL_TAKER"):
-            raise HTTPException(403, "Only the CC Manager or Call Taker may change priority")
+            raise HTTPException(403, "Only the Global Team Executive or Call Taker may change priority")
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: a closed ticket must be reopened before its priority can change")
         if action_in.priority not in PRIORITY:
@@ -203,8 +219,8 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
              priority=action_in.priority, tat_mins=nt_mins, due_at=new_due)
 
     elif act == "reopen":
-        if role not in ("CC_MANAGER", "CALL_TAKER"):
-            raise HTTPException(403, "Only the CC Manager or Call Taker may reopen")
+        if role not in ("CC_MANAGER", "CALL_TAKER") and not is_originating_lt:
+            raise HTTPException(403, "Only the Global Team Executive, Call Taker, or the LT who raised this ticket may reopen")
         _require_transition(ticket, act)
         if not (action_in.note or "").strip():
             raise HTTPException(400, "SOP: reopening a ticket must record the reason")

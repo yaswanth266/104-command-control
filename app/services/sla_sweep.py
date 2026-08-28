@@ -6,8 +6,9 @@ from app.db.database import SessionLocal
 from app.models.ticket import Ticket
 from app.crud.crud_event import create_event
 from app.crud.crud_notification import create_notification, notification_exists
-from app.crud.crud_settings import get_sla_config
-from app.crud.crud_user import get_team_managers
+from app.crud.crud_settings import get_sla_config, get_dispatch_config
+from app.crud.crud_user import get_team_managers, get_local_team_lead
+from app.services.notifications import notify_escalated
 from app.core.config import SLA_SWEEP_SECONDS
 from app.services.formatting import sla_tier
 
@@ -42,7 +43,13 @@ def _sweep_open_tickets(db: Session, now: datetime.datetime, sla_cfg: dict):
                 create_notification(db, "CC_MANAGER", t.id, "ESCALATED", f"Ticket {t.ticket_no} auto-escalated: TAT breached")
         elif pct_used >= sla_cfg["team_manager_warn_pct"]:
             if not notification_exists(db, t.id, "TAT_TEAM_MANAGER_WARN"):
-                managers = get_team_managers(db, t.team)
+                # Local Team Lead routing (future, dormant until enabled):
+                # prefer the district's lead over the statewide Team
+                # Executive(s) once the toggle is on and one is configured -
+                # falls back to the existing team-wide behavior otherwise.
+                local_leads = (get_local_team_lead(db, t.team, t.district_id)
+                               if (t.district_id and get_dispatch_config(db)["local_team_lead_enabled"]) else [])
+                managers = local_leads or get_team_managers(db, t.team)
                 msg = f"Ticket {t.ticket_no} has used {round(pct_used*100)}% of its TAT ({round(mins_left)}m left) - needs your attention"
                 if managers:
                     # audience_role=None: personal, not a team-wide broadcast
@@ -50,9 +57,9 @@ def _sweep_open_tickets(db: Session, now: datetime.datetime, sla_cfg: dict):
                     for m in managers:
                         create_notification(db, None, t.id, "TAT_TEAM_MANAGER_WARN", msg, audience_username=m.username)
                 else:
-                    # No Team Manager configured for this team yet - don't let
-                    # the warning vanish, fall back to the whole team.
-                    create_notification(db, t.team, t.id, "TAT_TEAM_MANAGER_WARN", msg + " (no Team Manager set for this team)")
+                    # No Team Executive configured for this team yet - don't
+                    # let the warning vanish, fall back to the whole team.
+                    create_notification(db, t.team, t.id, "TAT_TEAM_MANAGER_WARN", msg + " (no Team Executive set for this team)")
         elif pct_used >= sla_cfg["assignee_warn_pct"]:
             if not notification_exists(db, t.id, "TAT_ASSIGNEE_WARN"):
                 msg = f"Ticket {t.ticket_no} has used {round(pct_used*100)}% of its TAT ({round(mins_left)}m left)"
@@ -63,6 +70,31 @@ def _sweep_open_tickets(db: Session, now: datetime.datetime, sla_cfg: dict):
                     # exactly the right behavior here (see dashboard's
                     # "unassigned" count for the same gap).
                     create_notification(db, t.team, t.id, "TAT_ASSIGNEE_WARN", msg + " (unassigned)")
+
+def _sweep_lt_cda_timeouts(db: Session, now: datetime.datetime, threshold_minutes: float):
+    """LT self-service: if a ticket an LT raised has sat with its (district)
+    CDA team this long without being resolved, auto-escalate to CC_MANAGER -
+    same mechanics as the BREACHED auto-escalation above (escalated/
+    escalated_at/escalation_note + notify_escalated), just a different
+    trigger (assigned_at age, not TAT) so a CDA going quiet doesn't leave the
+    LT stuck with no path forward before the ticket even breaches its TAT."""
+    cutoff = now - datetime.timedelta(minutes=threshold_minutes)
+    stuck = db.query(Ticket).filter(
+        Ticket.source == "LT_PORTAL",
+        Ticket.status.notin_(["RESOLVED", "CLOSURE_CONFIRMATION", "CLOSED"]),
+        Ticket.escalated == False,
+        Ticket.assigned_at.isnot(None),
+        Ticket.assigned_at <= cutoff,
+    ).all()
+    for t in stuck:
+        note = f"Auto-escalated: no resolution from {t.team} within {threshold_minutes} minutes"
+        t.escalated = True
+        t.escalated_at = now
+        t.escalated_to = "CC_MANAGER"
+        t.escalation_note = note
+        db.commit()
+        create_event(db, t.id, _SYSTEM_ACTOR, "AUTO_ESCALATED", note)
+        notify_escalated(db, t, note)
 
 def _sweep_pending_confirmations(db: Session, now: datetime.datetime, followup_hours: float):
     cutoff = now - datetime.timedelta(hours=followup_hours)
@@ -82,6 +114,7 @@ def run_sla_sweep_once():
         sla_cfg = get_sla_config(db)
         _sweep_open_tickets(db, now, sla_cfg)
         _sweep_pending_confirmations(db, now, sla_cfg["resolved_followup_hours"])
+        _sweep_lt_cda_timeouts(db, now, sla_cfg["lt_cda_escalation_minutes"])
     except Exception:
         logger.exception("SLA sweep pass failed")
         db.rollback()

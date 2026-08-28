@@ -3,8 +3,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.api.deps import get_current_user
-from app.schemas.ticket import TicketIn, ActionIn
+from app.schemas.ticket import TicketIn, ActionIn, LogCallIn
 from app.crud.crud_ticket import get_tickets, get_ticket, get_tat_map, create_ticket as insert_ticket
+from app.models.ticket import Ticket
 from app.crud.crud_event import get_events_by_ticket, create_event
 from app.crud.crud_category import get_category_map, resolve_team
 from app.crud.crud_team import get_team_map
@@ -21,7 +22,7 @@ collection_router = APIRouter(prefix="/tickets", tags=["tickets"])
 @router.post("")
 def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
-        raise HTTPException(403, "Only the Call Taker or CC Manager may register a call")
+        raise HTTPException(403, "Only the Call Taker or Global Team Executive may register a call")
     cat = b.category.strip().upper()
     r = resolve_team(db, cat, b.mandal_id)
     if r is None:
@@ -44,6 +45,7 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         district_id=b.district_id,
         mandal_id=b.mandal_id,
         zone_id=r["zone_id"],
+        machine_id=b.machine_id,
         location=b.location,
         caller_name=b.caller_name,
         caller_phone=b.caller_phone,
@@ -113,3 +115,38 @@ def ticket_action(b: ActionIn, db: Session = Depends(get_db), current_user: dict
         raise HTTPException(404, "Ticket not found")
 
     return process_ticket_action(db, ticket, current_user, b)
+
+@router.get("/by-number/{ticket_no}")
+def get_ticket_by_number(ticket_no: str, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Backs Register Call's 'already reported through the LT portal?' lookup
+    - a Call Taker looks up an LT's portal ticket by its human-readable number
+    (never the raw id) so a follow-up call can be linked to it instead of
+    spawning a duplicate ticket."""
+    if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
+        raise HTTPException(403, "Only the Call Taker or Global Team Executive may look up a ticket this way")
+    t = db.query(Ticket).filter(Ticket.ticket_no == ticket_no.strip().upper()).first()
+    if not t:
+        raise HTTPException(404, "No ticket found with that number")
+    if t.source != "LT_PORTAL":
+        raise HTTPException(400, "That ticket wasn't raised through the LT portal")
+    return enrich(t, get_category_map(db), get_team_map(db), get_sla_config(db))
+
+@router.post("/{tid}/log-call")
+def log_call(tid: int, b: LogCallIn, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """A follow-up phone call about an issue already raised through the LT
+    portal - logs an event on the EXISTING ticket rather than creating a
+    second one, so the two never compete for the same SLA clock."""
+    if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
+        raise HTTPException(403, "Only the Call Taker or Global Team Executive may log a call")
+    t = get_ticket(db, tid)
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if t.source != "LT_PORTAL":
+        raise HTTPException(400, "That ticket wasn't raised through the LT portal")
+    detail = "Follow-up call received"
+    if b.caller_name or b.caller_phone:
+        detail += f" from {b.caller_name or 'unknown caller'}" + (f" ({b.caller_phone})" if b.caller_phone else "")
+    if b.note:
+        detail += f": {b.note}"
+    create_event(db, t.id, current_user, "CALL_RECEIVED", detail)
+    return {"ok": True, "ticket_no": t.ticket_no, "id": t.id}

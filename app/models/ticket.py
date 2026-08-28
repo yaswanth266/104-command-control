@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, text
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, JSON, text
 from sqlalchemy.sql import func
 from app.db.database import Base
 
@@ -22,6 +22,9 @@ class Ticket(Base):
     caller_phone = Column(String(20))
     called_at = Column(DateTime)
     equipment = Column(String(128))
+    machine_id = Column(Integer, index=True)
+    reason_codes = Column(JSON)
+    photo_path = Column(String(255))
     problem = Column(Text)
     error_code = Column(String(96))
     impact = Column(String(191))

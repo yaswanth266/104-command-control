@@ -4,8 +4,9 @@ from app.db.database import get_db
 from app.api.deps import require_admin
 from app.schemas.admin import (TeamIn, TeamUpdate, CategoryIn, CategoryUpdate, SlaUpdate, UserIn, UserUpdate,
                                 DistrictIn, DistrictUpdate, ZoneIn, ZoneUpdate, MandalIn, MandalUpdate,
-                                VehicleIn, VehicleUpdate)
-from app.crud import crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle
+                                VehicleIn, VehicleUpdate, ReasonIn, ReasonUpdate, MachineIn, MachineUpdate,
+                                DispatchUpdate)
+from app.crud import crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason, crud_machine
 from app.crud.crud_admin_event import log_admin_event, get_admin_events
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -15,12 +16,19 @@ def _team_out(t):
 
 def _category_out(c):
     return {"code": c.code, "label": c.label, "team_code": c.team_code, "default_owner": c.default_owner,
-            "is_active": c.is_active, "route_by_zone": c.route_by_zone}
+            "is_active": c.is_active, "route_by_zone": c.route_by_zone, "visible_to_lt": c.visible_to_lt}
 
 def _user_out(u):
     return {"id": u.id, "username": u.username, "name": u.name, "role": u.role, "phone": u.phone, "active": u.active,
             "hr_emp_code": u.hr_emp_code, "reporting_manager_id": u.reporting_manager_id,
-            "is_team_manager": u.is_team_manager}
+            "is_team_manager": u.is_team_manager, "vehicle_id": u.vehicle_id,
+            "district_id": u.district_id, "mandal_id": u.mandal_id}
+
+def _reason_out(r):
+    return {"code": r.code, "category_code": r.category_code, "label": r.label, "is_active": r.is_active}
+
+def _machine_out(m):
+    return {"id": m.id, "name": m.name, "is_active": m.is_active}
 
 def _district_out(d):
     return {"id": d.id, "name": d.name, "is_active": d.is_active}
@@ -60,17 +68,55 @@ def list_categories(db: Session = Depends(get_db), current_user: dict = Depends(
 
 @router.post("/categories")
 def create_category(b: CategoryIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
-    c = crud_category.create_category(db, b.code, b.label, b.team_code, b.default_owner, b.route_by_zone)
+    c = crud_category.create_category(db, b.code, b.label, b.team_code, b.default_owner, b.route_by_zone, b.visible_to_lt)
     log_admin_event(db, current_user, "CATEGORY_CREATED", "category", c.code, f"label={c.label}, team={c.team_code}")
     return _category_out(c)
 
 @router.put("/categories/{code}")
 def update_category(code: str, b: CategoryUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     c = crud_category.update_category(db, code.upper(), label=b.label, team_code=b.team_code,
-                                       default_owner=b.default_owner, is_active=b.is_active, route_by_zone=b.route_by_zone)
+                                       default_owner=b.default_owner, is_active=b.is_active, route_by_zone=b.route_by_zone,
+                                       visible_to_lt=b.visible_to_lt)
     log_admin_event(db, current_user, "CATEGORY_UPDATED", "category", c.code,
-                     f"label={c.label}, team={c.team_code}, is_active={c.is_active}, route_by_zone={c.route_by_zone}")
+                     f"label={c.label}, team={c.team_code}, is_active={c.is_active}, "
+                     f"route_by_zone={c.route_by_zone}, visible_to_lt={c.visible_to_lt}")
     return _category_out(c)
+
+# ---------- reasons ----------
+
+@router.get("/reasons")
+def list_reasons(category: str = None, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_reason_out(r) for r in crud_reason.get_reasons(db, category_code=category, include_inactive=True)]
+
+@router.post("/reasons")
+def create_reason(b: ReasonIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    r = crud_reason.create_reason(db, b.code, b.category_code, b.label)
+    log_admin_event(db, current_user, "REASON_CREATED", "reason", r.code, f"label={r.label}, category={r.category_code}")
+    return _reason_out(r)
+
+@router.put("/reasons/{code}")
+def update_reason(code: str, b: ReasonUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    r = crud_reason.update_reason(db, code.upper(), label=b.label, is_active=b.is_active)
+    log_admin_event(db, current_user, "REASON_UPDATED", "reason", r.code, f"label={r.label}, is_active={r.is_active}")
+    return _reason_out(r)
+
+# ---------- machines ----------
+
+@router.get("/machines")
+def list_machines(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_machine_out(m) for m in crud_machine.get_machines(db, include_inactive=True)]
+
+@router.post("/machines")
+def create_machine(b: MachineIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    m = crud_machine.create_machine(db, b.name)
+    log_admin_event(db, current_user, "MACHINE_CREATED", "machine", str(m.id), f"name={m.name}")
+    return _machine_out(m)
+
+@router.put("/machines/{machine_id}")
+def update_machine(machine_id: int, b: MachineUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    m = crud_machine.update_machine(db, machine_id, is_active=b.is_active)
+    log_admin_event(db, current_user, "MACHINE_UPDATED", "machine", str(m.id), f"is_active={m.is_active}")
+    return _machine_out(m)
 
 # ---------- geography ----------
 
@@ -164,13 +210,28 @@ def update_sla(b: SlaUpdate, db: Session = Depends(get_db), current_user: dict =
         raise HTTPException(400, "Nothing to update - provide 'sla', 'tat' and/or 'vip_keywords'")
     return out
 
+# ---------- dispatch (Local Team Lead routing - future, dormant by default) ----------
+
+@router.get("/dispatch")
+def get_dispatch(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return crud_settings.get_dispatch_config(db)
+
+@router.put("/dispatch")
+def update_dispatch(b: DispatchUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    if b.local_team_lead_enabled is None:
+        raise HTTPException(400, "Nothing to update - provide 'local_team_lead_enabled'")
+    out = crud_settings.update_dispatch_config(db, {"local_team_lead_enabled": b.local_team_lead_enabled})
+    log_admin_event(db, current_user, "DISPATCH_SETTINGS_UPDATED", "settings", "dispatch", str(out))
+    return out
+
 # ---------- users ----------
 # (GET /users already exists for the roster listing - these add write access)
 
 @router.post("/users")
 def create_user(b: UserIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     u = crud_user.create_user(db, b.username, b.name, b.role, b.password, b.phone,
-                               b.hr_emp_code, b.reporting_manager_id, b.is_team_manager)
+                               b.hr_emp_code, b.reporting_manager_id, b.is_team_manager,
+                               b.vehicle_id, b.district_id, b.mandal_id)
     log_admin_event(db, current_user, "USER_CREATED", "user", u.username, f"role={u.role}")
     return _user_out(u)
 
@@ -178,7 +239,8 @@ def create_user(b: UserIn, db: Session = Depends(get_db), current_user: dict = D
 def update_user(user_id: int, b: UserUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     u = crud_user.update_user(db, user_id, name=b.name, role=b.role, phone=b.phone,
                                active=b.active, password=b.password, hr_emp_code=b.hr_emp_code,
-                               reporting_manager_id=b.reporting_manager_id, is_team_manager=b.is_team_manager)
+                               reporting_manager_id=b.reporting_manager_id, is_team_manager=b.is_team_manager,
+                               vehicle_id=b.vehicle_id, district_id=b.district_id, mandal_id=b.mandal_id)
     detail = f"role={u.role}, active={u.active}" + (", password reset" if b.password else "")
     log_admin_event(db, current_user, "USER_UPDATED", "user", u.username, detail)
     return _user_out(u)

@@ -19,8 +19,15 @@ def get_tat_map(db: Session):
 
 def get_next_ticket_no(db: Session) -> str:
     d = datetime.datetime.now().strftime("%Y%m%d")
-    count = db.query(Ticket).filter(Ticket.ticket_no.like(f"CCC-{d}-%")).count()
-    return f"CCC-{d}-{count + 1:04d}"
+    last_ticket = db.query(Ticket.ticket_no)\
+        .filter(Ticket.ticket_no.like(f"CCC-{d}-%"))\
+        .order_by(Ticket.ticket_no.desc())\
+        .first()
+    
+    if last_ticket:
+        last_seq = int(last_ticket[0].split('-')[-1])
+        return f"CCC-{d}-{last_seq + 1:04d}"
+    return f"CCC-{d}-0001"
 
 def create_ticket(db: Session, fields: dict, max_attempts: int = 5) -> Ticket:
     """Insert a new ticket, retrying with a fresh ticket_no if a concurrent
@@ -59,6 +66,8 @@ def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope
     role = user.get("role")
     if role not in ("CC_MANAGER", "CALL_TAKER"):
         query = query.filter(Ticket.team == role)
+        if user.get("district_id"):
+            query = query.filter(Ticket.district_id == user["district_id"])
 
     if team:
         query = query.filter(Ticket.team == team)

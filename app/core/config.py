@@ -11,6 +11,11 @@ SQLALCHEMY_DATABASE_URL = f"mysql+pymysql://{DB_USER}:{DB_PW}@{DB_HOST}/{DB_NAME
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 WEB_DIR = os.environ.get("CCC_WEB", os.path.join(BASE_DIR, "web"))
 
+# Where LT-uploaded ticket photos are stored - served back out under /uploads
+# (see main.py). Local disk is the right call for the current single-server
+# systemd+nginx deployment; revisit only if that changes.
+UPLOAD_DIR = os.environ.get("CCC_UPLOADS", os.path.join(BASE_DIR, "uploads"))
+
 # Shared secret the field-app/gov-EHR integration must send as X-Intake-Key on
 # POST /intake. Required - see app/api/routers/intake.py.
 INTAKE_API_KEY = os.environ.get("CCC_INTAKE_KEY")

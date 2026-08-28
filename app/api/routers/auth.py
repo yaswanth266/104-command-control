@@ -37,8 +37,8 @@ def auth(b: LoginIn, db: Session = Depends(get_db)):
 
     _failed_attempts.pop(key, None)
     user_dict = {"uid": u.id, "username": u.username, "name": u.name, "role": u.role,
-                 "is_team_manager": u.is_team_manager}
+                 "is_team_manager": u.is_team_manager, "district_id": u.district_id}
     tok = mktoken(user_dict)
 
     return {"token": tok, "user": {"username": u.username, "name": u.name, "role": u.role,
-                                    "is_team_manager": u.is_team_manager}}
+                                    "is_team_manager": u.is_team_manager, "district_id": u.district_id}}

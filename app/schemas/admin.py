@@ -15,6 +15,7 @@ class CategoryIn(BaseModel):
     team_code: str
     default_owner: Optional[str] = None
     route_by_zone: Optional[bool] = False
+    visible_to_lt: Optional[bool] = False
 
 class CategoryUpdate(BaseModel):
     label: Optional[str] = None
@@ -22,6 +23,22 @@ class CategoryUpdate(BaseModel):
     default_owner: Optional[str] = None
     is_active: Optional[bool] = None
     route_by_zone: Optional[bool] = None
+    visible_to_lt: Optional[bool] = None
+
+class ReasonIn(BaseModel):
+    code: str
+    category_code: str
+    label: str
+
+class ReasonUpdate(BaseModel):
+    label: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class MachineIn(BaseModel):
+    name: str
+
+class MachineUpdate(BaseModel):
+    is_active: Optional[bool] = None
 
 class DistrictIn(BaseModel):
     name: str
@@ -63,6 +80,9 @@ class SlaUpdate(BaseModel):
     tat: Optional[Dict[str, int]] = None
     vip_keywords: Optional[List[str]] = None
 
+class DispatchUpdate(BaseModel):
+    local_team_lead_enabled: Optional[bool] = None
+
 class UserIn(BaseModel):
     username: str
     name: str
@@ -72,6 +92,9 @@ class UserIn(BaseModel):
     hr_emp_code: Optional[str] = None
     reporting_manager_id: Optional[int] = None
     is_team_manager: Optional[bool] = False
+    vehicle_id: Optional[int] = None
+    district_id: Optional[int] = None
+    mandal_id: Optional[int] = None
 
 class UserUpdate(BaseModel):
     name: Optional[str] = None
@@ -82,3 +105,6 @@ class UserUpdate(BaseModel):
     hr_emp_code: Optional[str] = None
     reporting_manager_id: Optional[int] = None  # 0 clears it, matches crud_user.py's sentinel
     is_team_manager: Optional[bool] = None
+    vehicle_id: Optional[int] = None    # 0 clears it, matches crud_user.py's sentinel
+    district_id: Optional[int] = None   # 0 clears it, matches crud_user.py's sentinel
+    mandal_id: Optional[int] = None     # 0 clears it, matches crud_user.py's sentinel

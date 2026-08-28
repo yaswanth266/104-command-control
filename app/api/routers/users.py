@@ -11,7 +11,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 def list_users(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     users = get_users(db)
     return [
-        {"id": u.id, "username": u.username, "name": u.name, "role": u.role, "phone": u.phone, "active": u.active}
+        {"id": u.id, "username": u.username, "name": u.name, "role": u.role, "phone": u.phone, "active": u.active,
+         "hr_emp_code": u.hr_emp_code, "reporting_manager_id": u.reporting_manager_id,
+         "is_team_manager": u.is_team_manager, "vehicle_id": u.vehicle_id,
+         "district_id": u.district_id, "mandal_id": u.mandal_id}
         for u in users
     ]
 
@@ -27,5 +30,5 @@ def team_roster(team: Optional[str] = None, db: Session = Depends(get_db), curre
     elif current_user.get("is_team_manager"):
         target_team = current_user["role"]
     else:
-        raise HTTPException(403, "Only a Team Manager or the CC Manager may view a team roster")
+        raise HTTPException(403, "Only a Team Executive or the Global Team Executive may view a team roster")
     return [{"username": u.username, "name": u.name} for u in get_active_users_by_role(db, target_team)]

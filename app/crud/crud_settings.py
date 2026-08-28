@@ -17,9 +17,20 @@ SLA_DEFAULT = {
     # copied on every single warning across every district (alarm fatigue).
     "assignee_warn_pct": 0.5,
     "team_manager_warn_pct": 0.8,
+    # LT self-service: if an LT-raised ticket sits with its CDA team without
+    # being resolved this long, auto-escalate to CC_MANAGER (see
+    # app/services/sla_sweep.py's _sweep_lt_cda_timeouts).
+    "lt_cda_escalation_minutes": 60,
 }
 
 VIP_KEYWORDS_DEFAULT = ["ceo", "collector", "director", "minister", "total shutdown"]
+
+# Local Team Lead routing (see app/crud/crud_user.py's get_local_team_lead) -
+# dormant until the Global Team Executive turns it on: a Team Executive
+# (is_team_manager=True) with a district_id set becomes that district's Local
+# Team Lead once this is enabled. Off by default so nothing changes until
+# explicitly switched on.
+DISPATCH_DEFAULT = {"local_team_lead_enabled": False}
 
 def _get_config_row(db: Session, key: str):
     return db.query(Config).filter(Config.k == key).first()
@@ -45,7 +56,7 @@ def get_sla_config(db: Session) -> dict:
 
 def update_sla_config(db: Session, patch: dict) -> dict:
     cfg = get_sla_config(db)
-    minute_fields = ("at_risk_minutes", "critical_minutes", "resolved_followup_hours", "reopen_window_hours")
+    minute_fields = ("at_risk_minutes", "critical_minutes", "resolved_followup_hours", "reopen_window_hours", "lt_cda_escalation_minutes")
     fraction_fields = ("at_risk_fraction", "critical_fraction", "assignee_warn_pct", "team_manager_warn_pct")
     for k, v in patch.items():
         if k not in cfg:
@@ -93,6 +104,26 @@ def detect_vip(db: Session, vip_flag: bool, *text_fields) -> tuple:
         if kw and kw in haystack:
             return True, f"matched keyword '{kw}'"
     return False, None
+
+def get_dispatch_config(db: Session) -> dict:
+    row = _get_config_row(db, "dispatch")
+    if row:
+        try:
+            cfg = dict(DISPATCH_DEFAULT)
+            cfg.update(json.loads(row.v))
+            return cfg
+        except Exception:
+            return dict(DISPATCH_DEFAULT)
+    return dict(DISPATCH_DEFAULT)
+
+def update_dispatch_config(db: Session, patch: dict) -> dict:
+    cfg = get_dispatch_config(db)
+    for k, v in patch.items():
+        if k not in cfg:
+            continue
+        cfg[k] = bool(v)
+    _set_config_row(db, "dispatch", cfg)
+    return cfg
 
 def update_tat_map(db: Session, patch: dict) -> dict:
     """Was previously read-only (get_tat_map in crud_ticket.py) with no way to

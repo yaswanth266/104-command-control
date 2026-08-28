@@ -18,6 +18,12 @@ class TicketIn(BaseModel):
     district_id: Optional[int] = None
     mandal_id: Optional[int] = None
     vehicle_id: Optional[int] = None
+    machine_id: Optional[int] = None
+
+class LogCallIn(BaseModel):
+    caller_name: Optional[str] = None
+    caller_phone: Optional[str] = None
+    note: Optional[str] = None
 
 class ActionIn(BaseModel):
     id: int

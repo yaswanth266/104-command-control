@@ -19,4 +19,9 @@ class User(Base):
     # tickets to named teammates. See app/services/ticket_service.py's
     # "assign" action.
     is_team_manager = Column(Boolean, server_default=text("0"), nullable=False)
+    # LT profile fields - so an LT's location/vehicle is known from their
+    # account and never re-typed on every ticket they raise.
+    vehicle_id = Column(Integer, index=True)
+    district_id = Column(Integer, index=True)
+    mandal_id = Column(Integer, index=True)
     created_at = Column(DateTime, default=func.now())

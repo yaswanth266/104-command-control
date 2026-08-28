@@ -30,10 +30,22 @@ def _ensure_test_db():
 _ensure_test_db()
 
 from app.db.database import Base, engine, SessionLocal  # noqa: E402
-from app.models import User, Ticket, Event, Notification, Team, Category  # noqa: E402
+from app.models import (User, Ticket, Event, Notification, Team, Category,  # noqa: E402
+                         District, Mandal, Zone, Vehicle, Reason, Machine)
 from app.core.security import hash_pw, mktoken  # noqa: E402
 
 ROLES = ["CC_MANAGER", "CALL_TAKER", "SERVICE", "APPLICATION", "QUALITY", "TECHNICAL", "NETWORK", "FIELD_OPS", "FLEET"]
+
+# LT self-service test fixtures: one district/mandal routed (via Zone) to a
+# dedicated CDA team, so resolve_team's zone-routing path is exercised
+# end-to-end exactly like a real LT-raised ticket would be. IDs are assigned
+# by the DB at seed time (see _schema below) and stashed here for tests to
+# import, rather than hardcoded, since these are autoincrement PKs.
+LT_CDA_TEAM = "CDA_TEST"
+LT_CATEGORY = "LT_ISSUE"
+LT_REASON_CODES = ["NO_POWER", "CALIBRATION"]
+LT_USERNAME = "lt1"
+lt_ids = {}  # populated by _schema: district_id, mandal_id, zone_id, vehicle_id, machine_id
 
 # Mirrors alembic/versions/1913fabf3a6b's seed data (the same routing matrix
 # that used to be the hardcoded ROUTING/TEAMS dicts) - Base.metadata.create_all
@@ -69,7 +81,55 @@ def _schema():
         db.add(Team(code=code, name=name, is_active=True))
     for code, label, team_code, owner in _SEED_CATEGORIES:
         db.add(Category(code=code, label=label, team_code=team_code, default_owner=owner, is_active=True))
+
+    # LT self-service: dedicated CDA team + district/mandal/zone routed to it,
+    # a category flagged visible_to_lt + route_by_zone, its reasons, a
+    # machine, a vehicle, and the LT user whose profile auto-fills all of it.
+    db.add(Team(code=LT_CDA_TEAM, name="CDA Test Team", is_active=True))
+    db.add(Category(code=LT_CATEGORY, label="Field Machine Issue", team_code="SERVICE",
+                     default_owner="Service Engineer", is_active=True, route_by_zone=True, visible_to_lt=True))
+    # A second LT-visible category with no reasons of its own, purely so tests
+    # can confirm a reason tagged to LT_CATEGORY is rejected here.
+    db.add(Category(code="LT_OTHER", label="Other Field Issue", team_code="SERVICE",
+                     default_owner="Service Engineer", is_active=True, visible_to_lt=True))
     db.commit()
+
+    district = District(name="LT Test District", is_active=True)
+    db.add(district)
+    db.commit()
+    db.refresh(district)
+
+    zone = Zone(name="LT Test Zone", team_code=LT_CDA_TEAM, is_active=True)
+    db.add(zone)
+    db.commit()
+    db.refresh(zone)
+
+    mandal = Mandal(name="LT Test Mandal", district_id=district.id, zone_id=zone.id, is_active=True)
+    db.add(mandal)
+    db.commit()
+    db.refresh(mandal)
+
+    vehicle = Vehicle(registration_no="LT-TEST-01", last_mandal_id=mandal.id, is_active=True)
+    db.add(vehicle)
+    db.commit()
+    db.refresh(vehicle)
+
+    machine = Machine(name="Analyzer Test-100", is_active=True)
+    db.add(machine)
+    db.commit()
+    db.refresh(machine)
+
+    for code, label in [("NO_POWER", "No power / won't switch on"), ("CALIBRATION", "Calibration failure")]:
+        db.add(Reason(code=code, category_code=LT_CATEGORY, label=label, is_active=True))
+    db.add(User(username=LT_USERNAME, name="Lab Technician One", role="LT",
+                pw=hash_pw("testpass123"), active=True,
+                vehicle_id=vehicle.id, district_id=district.id, mandal_id=mandal.id))
+    db.add(User(username=LT_CDA_TEAM.lower(), name="CDA Test Staff", role=LT_CDA_TEAM,
+                pw=hash_pw("testpass123"), active=True))
+    db.commit()
+
+    lt_ids.update(district_id=district.id, mandal_id=mandal.id, zone_id=zone.id,
+                   vehicle_id=vehicle.id, machine_id=machine.id)
     db.close()
     yield
 
