@@ -6,8 +6,9 @@ from app.crud.crud_event import create_event
 from app.core.config import PRIORITY
 from app.crud.crud_ticket import get_tat_map
 from app.crud.crud_team import get_team_map, get_active_team_map
+from app.crud.crud_settings import get_sla_config
 from app.schemas.ticket import ActionIn
-from app.services.notifications import notify_escalated
+from app.services.notifications import notify_escalated, notify_assigned
 
 # Centralized workflow contract: the ticket statuses each lifecycle action may
 # be applied from, and the status it lands on. This is the single place that
@@ -44,6 +45,17 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
 
     def setf(action_name: str, detail: str, **kwargs):
         old_status = ticket.status
+        # SLA-pausing PENDING: whenever an action moves a ticket OUT of PENDING
+        # into any other status, credit back the time it sat waiting (e.g. on
+        # the customer) by pushing due_at out by the elapsed pending duration -
+        # otherwise a customer callback delay counts against the team's TAT.
+        new_status_kw = kwargs.get("status")
+        if old_status == "PENDING" and new_status_kw and new_status_kw != "PENDING" and ticket.pending_since:
+            elapsed_min = (now - ticket.pending_since).total_seconds() / 60.0
+            if ticket.due_at:
+                ticket.due_at = ticket.due_at + datetime.timedelta(minutes=elapsed_min)
+            ticket.paused_minutes = (ticket.paused_minutes or 0) + round(elapsed_min)
+            ticket.pending_since = None
         for k, v in kwargs.items():
             setattr(ticket, k, v)
         db.commit()
@@ -98,7 +110,8 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if not (action_in.pending_reason or "").strip():
             raise HTTPException(400, "SOP: a pending/waiting ticket must record the reason")
         setf("PENDING", f"Waiting: {action_in.pending_reason}",
-             status=TARGET_STATUS[act], pending_reason=action_in.pending_reason)
+             status=TARGET_STATUS[act], pending_reason=action_in.pending_reason,
+             pending_since=(ticket.pending_since or now))
 
     elif act == "resolve":
         if not own:
@@ -141,6 +154,27 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
              escalated=True, escalated_at=now, escalated_to='CC_MANAGER', escalation_note=action_in.note or "TAT risk")
         notify_escalated(db, ticket, action_in.note or "TAT risk")
 
+    elif act == "assign":
+        # Directive, not an access-control gate: a Team Manager points a
+        # ticket at a named engineer on their own team (or CC Manager can, on
+        # any team). Anyone on the team can still act on it exactly as
+        # before - this doesn't lock the ticket to that person, it just tells
+        # the team (via a personal notification) who's expected to run with it.
+        is_this_teams_manager = role == ticket.team and bool(user.get("is_team_manager"))
+        if not (is_this_teams_manager or role == "CC_MANAGER"):
+            raise HTTPException(403, "Only this team's Team Manager or the CC Manager may assign tickets to a named engineer")
+        if ticket.status == "CLOSED":
+            raise HTTPException(409, "SOP: a closed ticket must be reopened before it can be assigned")
+        target_username = (action_in.assignee or "").strip().lower()
+        if not target_username:
+            raise HTTPException(400, "Choose an engineer to assign this ticket to")
+        from app.crud.crud_user import get_user_by_username
+        target = get_user_by_username(db, target_username)
+        if not target or target.role != ticket.team:
+            raise HTTPException(400, f"'{target_username}' is not an active member of {ticket.team}")
+        setf("ASSIGNED_TO", f"{user['name']} assigned this to {target.name}", assignee=target.username)
+        notify_assigned(db, ticket, target.username, user['name'])
+
     elif act == "reassign":
         if role not in ("CC_MANAGER", "CALL_TAKER"):
             raise HTTPException(403, "Only the CC Manager or Call Taker may re-route a ticket")
@@ -161,8 +195,12 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if action_in.priority not in PRIORITY:
             raise HTTPException(400, "Priority must be P1-P4")
         nt_mins = get_tat_map(db).get(action_in.priority, 1440)
+        # Preserve any SLA pause already credited (see setf) - otherwise a
+        # priority change would silently wipe out paused time from an earlier
+        # PENDING period.
+        new_due = ticket.created_at + datetime.timedelta(minutes=nt_mins + (ticket.paused_minutes or 0))
         setf("PRIORITY", f"Priority set to {action_in.priority} (TAT {nt_mins} min)",
-             priority=action_in.priority, tat_mins=nt_mins, due_at=ticket.created_at + datetime.timedelta(minutes=nt_mins))
+             priority=action_in.priority, tat_mins=nt_mins, due_at=new_due)
 
     elif act == "reopen":
         if role not in ("CC_MANAGER", "CALL_TAKER"):
@@ -170,6 +208,10 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         _require_transition(ticket, act)
         if not (action_in.note or "").strip():
             raise HTTPException(400, "SOP: reopening a ticket must record the reason")
+        window_hours = get_sla_config(db)["reopen_window_hours"]
+        if ticket.closed_at and (now - ticket.closed_at) > datetime.timedelta(hours=window_hours):
+            raise HTTPException(409, f"SOP: this ticket closed over {window_hours}h ago and can no longer be "
+                                      "reopened - register a new ticket instead so history stays accurate")
         setf("REOPENED", action_in.note,
              status=TARGET_STATUS[act], closed_at=None, reopened=ticket.reopened + 1)
     else:

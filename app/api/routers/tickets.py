@@ -6,9 +6,9 @@ from app.api.deps import get_current_user
 from app.schemas.ticket import TicketIn, ActionIn
 from app.crud.crud_ticket import get_tickets, get_ticket, get_tat_map, create_ticket as insert_ticket
 from app.crud.crud_event import get_events_by_ticket, create_event
-from app.crud.crud_category import get_routing_map, get_category_map
+from app.crud.crud_category import get_category_map, resolve_team
 from app.crud.crud_team import get_team_map
-from app.crud.crud_settings import get_sla_config
+from app.crud.crud_settings import get_sla_config, detect_vip
 from app.services.ticket_service import process_ticket_action
 from app.services.formatting import enrich
 from app.services.notifications import notify_new_ticket
@@ -23,22 +23,27 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
         raise HTTPException(403, "Only the Call Taker or CC Manager may register a call")
     cat = b.category.strip().upper()
-    routing = get_routing_map(db)
-    if cat not in routing:
+    r = resolve_team(db, cat, b.mandal_id)
+    if r is None:
         raise HTTPException(400, "Unknown issue category")
     if b.priority not in PRIORITY:
         raise HTTPException(400, "Priority must be P1-P4")
     if not (b.problem or "").strip():
         raise HTTPException(400, "Nature of the problem is required")
 
-    r = routing[cat]
-    tat = get_tat_map(db).get(b.priority, 1440)
+    is_vip, vip_reason = detect_vip(db, b.vip, b.problem, b.impact)
+    priority = "P1" if is_vip else b.priority
+    tat = get_tat_map(db).get(priority, 1440)
     now = datetime.datetime.now()
 
     db_ticket = insert_ticket(db, dict(
         source='CALL',
         mmu_vehicle=b.mmu_vehicle,
+        vehicle_id=b.vehicle_id,
         district=b.district,
+        district_id=b.district_id,
+        mandal_id=b.mandal_id,
+        zone_id=r["zone_id"],
         location=b.location,
         caller_name=b.caller_name,
         caller_phone=b.caller_phone,
@@ -48,7 +53,8 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         error_code=b.error_code,
         impact=b.impact,
         category=cat,
-        priority=b.priority,
+        priority=priority,
+        vip=is_vip,
         team=r["team"],
         owner=r["owner"],
         status='ASSIGNED',
@@ -58,11 +64,16 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         assigned_at=now
     ))
 
-    create_event(db, db_ticket.id, current_user, "CREATED", f"Call registered; classified {cat} -> {r['team']} ({b.priority})",
-                 new_status=db_ticket.status)
+    detail = f"Call registered; classified {cat} -> {r['team']} ({priority})"
+    if r["zone_id"]:
+        detail += f" [zone-routed]"
+    if is_vip:
+        detail += f" - VIP escalation ({vip_reason})"
+    create_event(db, db_ticket.id, current_user, "CREATED", detail, new_status=db_ticket.status)
     notify_new_ticket(db, db_ticket)
 
-    return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "owner": r["owner"], "tat_mins": tat}
+    return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "owner": r["owner"],
+            "tat_mins": tat, "priority": priority, "vip": is_vip}
 
 @collection_router.get("")
 def list_tickets(status: str = "", team: str = "", scope: str = "", q_: str = "",

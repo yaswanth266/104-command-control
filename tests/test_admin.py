@@ -77,6 +77,9 @@ def test_sla_and_tat_update_validation(client):
     r = client.get("/cccapi/admin/sla", headers=MGR)
     assert r.json()["tat"]["P1"] == 180
 
+    # restore default so other tests can rely on TAT_DEFAULT
+    client.put("/cccapi/admin/sla", json={"tat": {"P1": 240}}, headers=MGR)
+
 
 def test_create_user_and_login(client):
     r = client.post("/cccapi/admin/users", json={

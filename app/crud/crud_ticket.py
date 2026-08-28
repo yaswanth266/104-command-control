@@ -76,6 +76,8 @@ def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope
         query = query.filter(and_(Ticket.status != "CLOSED", Ticket.due_at >= datetime.datetime.now(), text(_critical_window_sql(get_sla_config(db)))))
     elif scope == "escalated":
         query = query.filter(Ticket.escalated == True)
+    elif scope == "unassigned":
+        query = query.filter(and_(Ticket.status != "CLOSED", or_(Ticket.assignee.is_(None), Ticket.assignee == "")))
 
     if priority:
         query = query.filter(Ticket.priority == priority)

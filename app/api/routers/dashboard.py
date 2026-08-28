@@ -42,9 +42,15 @@ def dashboard(db: Session = Depends(get_db), current_user: dict = Depends(requir
             "pending": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status='PENDING'"),
             "awaiting_confirmation": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status='RESOLVED'"),
             "p1_open": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND priority='P1'"),
+            # Use Case 3 (Team Manager on leave, no round-robin yet): surfaces
+            # tickets nobody has picked up so the CC Manager can intervene
+            # manually without needing an auto-dispatch engine.
+            "unassigned": o("SELECT COUNT(*) n FROM ccc_ticket WHERE status<>'CLOSED' AND (assignee IS NULL OR assignee='')"),
         },
         "by_category": q("SELECT category, COUNT(*) n, SUM(status<>'CLOSED') open_n FROM ccc_ticket GROUP BY category ORDER BY n DESC"),
-        "by_team": q("SELECT team, COUNT(*) n, SUM(status<>'CLOSED') open_n, SUM(breached) breach_n FROM ccc_ticket GROUP BY team ORDER BY n DESC"),
+        "by_team": q("SELECT team, COUNT(*) n, SUM(status<>'CLOSED') open_n, SUM(breached) breach_n, "
+                     "SUM(status<>'CLOSED' AND (assignee IS NULL OR assignee='')) unassigned_n "
+                     "FROM ccc_ticket GROUP BY team ORDER BY n DESC"),
         "by_priority": q("SELECT priority, COUNT(*) n, SUM(status<>'CLOSED') open_n FROM ccc_ticket GROUP BY priority ORDER BY priority"),
         "by_status": q("SELECT status, COUNT(*) n FROM ccc_ticket GROUP BY status"),
         "repeat_vehicles": q("SELECT mmu_vehicle, COUNT(*) n FROM ccc_ticket WHERE mmu_vehicle IS NOT NULL AND mmu_vehicle<>'' GROUP BY mmu_vehicle HAVING n>1 ORDER BY n DESC LIMIT 10"),

@@ -36,7 +36,9 @@ def auth(b: LoginIn, db: Session = Depends(get_db)):
         raise HTTPException(status_code=401, detail="Invalid username or password")
 
     _failed_attempts.pop(key, None)
-    user_dict = {"uid": u.id, "username": u.username, "name": u.name, "role": u.role}
+    user_dict = {"uid": u.id, "username": u.username, "name": u.name, "role": u.role,
+                 "is_team_manager": u.is_team_manager}
     tok = mktoken(user_dict)
 
-    return {"token": tok, "user": {"username": u.username, "name": u.name, "role": u.role}}
+    return {"token": tok, "user": {"username": u.username, "name": u.name, "role": u.role,
+                                    "is_team_manager": u.is_team_manager}}

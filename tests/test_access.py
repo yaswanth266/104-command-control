@@ -57,10 +57,16 @@ def test_detailed_health_is_manager_only(client):
 
 
 def test_login_lockout_after_repeated_failures(client):
+    # Dedicated throwaway username, not a real seeded one (e.g. "service") -
+    # the lockout is 15 real minutes and _failed_attempts is a module-level
+    # dict that outlives this test for the rest of the pytest run, which
+    # would otherwise block any later test that needs a real login for that
+    # username (see tests/test_dispatch.py's _team_manager_headers).
+    username = "lockout_test_only"
     for _ in range(5):
-        r = client.post("/cccapi/auth", json={"username": "service", "password": "wrong"})
+        r = client.post("/cccapi/auth", json={"username": username, "password": "wrong"})
         assert r.status_code == 401
-    r = client.post("/cccapi/auth", json={"username": "service", "password": "wrong"})
+    r = client.post("/cccapi/auth", json={"username": username, "password": "wrong"})
     assert r.status_code == 429
 
 

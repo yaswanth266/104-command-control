@@ -9,7 +9,14 @@ class Ticket(Base):
     ticket_no = Column(String(32), unique=True)
     source = Column(String(24), server_default='CALL')
     mmu_vehicle = Column(String(64), index=True)
+    vehicle_id = Column(Integer, index=True)
     district = Column(String(96))
+    # Geo snapshot at creation time - resolved team may depend on these, and
+    # they must NOT silently change if the District/Mandal hierarchy is later
+    # reorganized (historical reporting stays accurate).
+    district_id = Column(Integer, index=True)
+    mandal_id = Column(Integer, index=True)
+    zone_id = Column(Integer, index=True)
     location = Column(String(191))
     caller_name = Column(String(128))
     caller_phone = Column(String(20))
@@ -39,6 +46,9 @@ class Ticket(Base):
     parts = Column(Text)
     resolution = Column(Text)
     pending_reason = Column(String(255))
+    pending_since = Column(DateTime)
+    paused_minutes = Column(Integer, server_default=text("0"))
+    vip = Column(Boolean, server_default=text("0"))
     confirmed_by = Column(String(128))
     confirmed_at = Column(DateTime)
     escalated = Column(Boolean, server_default=text("0"))

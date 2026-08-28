@@ -8,7 +8,18 @@ SLA_DEFAULT = {
     "at_risk_minutes": 60, "at_risk_fraction": 0.2,
     "critical_minutes": 15, "critical_fraction": 0.05,
     "resolved_followup_hours": 4,
+    "reopen_window_hours": 24,
+    # Tiered notification AUDIENCE (separate from the at_risk/critical pair
+    # above, which still drive the visual ON TRACK/AT RISK/CRITICAL/BREACHED
+    # pill unchanged). Percent of TAT consumed at which each tier notifies -
+    # the assignee individually first, then that team's Team Manager(s),
+    # before BREACHED (100%) reaches CC_MANAGER - so the CC Manager isn't
+    # copied on every single warning across every district (alarm fatigue).
+    "assignee_warn_pct": 0.5,
+    "team_manager_warn_pct": 0.8,
 }
+
+VIP_KEYWORDS_DEFAULT = ["ceo", "collector", "director", "minister", "total shutdown"]
 
 def _get_config_row(db: Session, key: str):
     return db.query(Config).filter(Config.k == key).first()
@@ -34,8 +45,8 @@ def get_sla_config(db: Session) -> dict:
 
 def update_sla_config(db: Session, patch: dict) -> dict:
     cfg = get_sla_config(db)
-    minute_fields = ("at_risk_minutes", "critical_minutes", "resolved_followup_hours")
-    fraction_fields = ("at_risk_fraction", "critical_fraction")
+    minute_fields = ("at_risk_minutes", "critical_minutes", "resolved_followup_hours", "reopen_window_hours")
+    fraction_fields = ("at_risk_fraction", "critical_fraction", "assignee_warn_pct", "team_manager_warn_pct")
     for k, v in patch.items():
         if k not in cfg:
             continue
@@ -48,8 +59,40 @@ def update_sla_config(db: Session, patch: dict) -> dict:
         if k in fraction_fields and not (0 <= v <= 1):
             raise HTTPException(400, f"'{k}' must be between 0 and 1")
         cfg[k] = v
+    if cfg["assignee_warn_pct"] >= cfg["team_manager_warn_pct"]:
+        raise HTTPException(400, "'assignee_warn_pct' must be less than 'team_manager_warn_pct'")
     _set_config_row(db, "sla", cfg)
     return cfg
+
+def get_vip_keywords(db: Session):
+    row = _get_config_row(db, "vip_keywords")
+    if row:
+        try:
+            return json.loads(row.v)
+        except Exception:
+            return list(VIP_KEYWORDS_DEFAULT)
+    return list(VIP_KEYWORDS_DEFAULT)
+
+def update_vip_keywords(db: Session, keywords: list) -> list:
+    cleaned = [str(k).strip().lower() for k in keywords if str(k).strip()]
+    row = _get_config_row(db, "vip_keywords")
+    if row:
+        row.v = json.dumps(cleaned)
+    else:
+        db.add(Config(k="vip_keywords", v=json.dumps(cleaned)))
+    db.commit()
+    return cleaned
+
+def detect_vip(db: Session, vip_flag: bool, *text_fields) -> tuple:
+    """Returns (is_vip, reason). VIP if the caller flagged it, or if any
+    configured keyword appears in the given text fields (problem/impact)."""
+    if vip_flag:
+        return True, "flagged by call taker"
+    haystack = " ".join(f for f in text_fields if f).lower()
+    for kw in get_vip_keywords(db):
+        if kw and kw in haystack:
+            return True, f"matched keyword '{kw}'"
+    return False, None
 
 def update_tat_map(db: Session, patch: dict) -> dict:
     """Was previously read-only (get_tat_map in crud_ticket.py) with no way to

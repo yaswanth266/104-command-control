@@ -12,3 +12,11 @@ def notify_new_ticket(db: Session, ticket: Ticket):
 def notify_escalated(db: Session, ticket: Ticket, note: str):
     create_notification(db, "CC_MANAGER", ticket.id, "ESCALATED",
                          f"Ticket {ticket.ticket_no} escalated by {ticket.team}: {note}")
+
+def notify_assigned(db: Session, ticket: Ticket, assignee_username: str, manager_name: str):
+    # audience_role deliberately None - this is addressed to one person ("you
+    # were assigned"), not the whole team; setting audience_role=ticket.team
+    # here would leak it to every teammate via get_notifications' OR filter.
+    create_notification(db, None, ticket.id, "ASSIGNED",
+                         f"{manager_name} assigned you ticket {ticket.ticket_no}",
+                         audience_username=assignee_username)

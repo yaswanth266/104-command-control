@@ -14,6 +14,10 @@ class TicketIn(BaseModel):
     category: str
     priority: str
     subject: Optional[str] = None
+    vip: Optional[bool] = False
+    district_id: Optional[int] = None
+    mandal_id: Optional[int] = None
+    vehicle_id: Optional[int] = None
 
 class ActionIn(BaseModel):
     id: int
