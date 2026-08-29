@@ -13,6 +13,24 @@ function api(m, p, b) {
   });
 }
 function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.style.transition = 'all 0.3s ease'; t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(20px)'; setTimeout(function () { t.remove(); }, 300); }, 3000); }
+/* Reusable second-layer modal (stacks above #modal, e.g. an Admin Portal
+   edit while nothing else is open) - replaces window.prompt() with a proper
+   in-app form pre-filled with the record's current values, matching the
+   same .ovl/.sheet/.sh/.sb shell the ticket-detail modal already uses. */
+function openModal2(html) { document.getElementById('modal2').innerHTML = html; }
+function closeModal2() { document.getElementById('modal2').innerHTML = ''; }
+function editModal(title, fieldsHtml, onSave) {
+  openModal2('<div class="ovl" onclick="if(event.target===this)closeModal2()"><div class="sheet" style="max-width:460px">' +
+    '<div class="sh"><div style="font-size:16px;font-weight:800">' + esc(title) + '</div>' +
+    '<button class="x" onclick="closeModal2()" aria-label="Close">&times;</button></div>' +
+    '<div class="sb">' + fieldsHtml +
+    '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px">' +
+    '<button class="btn o sm" onclick="closeModal2()">Cancel</button>' +
+    '<button class="btn sm" id="em_save_btn">Save</button>' +
+    '</div></div></div></div>');
+  document.getElementById('em_save_btn').onclick = onSave;
+  setTimeout(function () { var first = document.querySelector('#modal2 input,#modal2 select'); if (first) first.focus(); }, 50);
+}
 function doLogin() {
   var u = document.getElementById('u').value.trim(), p = document.getElementById('p').value;
   document.getElementById('lerr').textContent = '';
@@ -714,7 +732,7 @@ function loadAttachments(id) {
   api('GET', '/ticket/' + id + '/attachments').then(function(rows) {
     var list = rows.length ? rows.map(function(a) {
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3f4f6">' +
-        '<div><a href="/cccapi/uploads/' + esc(a.filename) + '" target="_blank" style="color:var(--pur);font-weight:600;text-decoration:none">' + esc(a.original_name) + '</a>' +
+        '<div><a href="/uploads/' + esc(a.filename) + '" target="_blank" style="color:var(--pur);font-weight:600;text-decoration:none">' + esc(a.original_name) + '</a>' +
         '<div class="muted">' + esc(a.uploaded_by) + ' (' + esc(a.uploaded_by_role) + ') &middot; ' + esc(a.created_at) + (a.note ? ' &middot; ' + esc(a.note) : '') + '</div></div>' +
         '</div>';
     }).join('') : '<div class="muted">No attachments yet.</div>';
@@ -993,7 +1011,10 @@ function loadAdminSection(t) {
       api('GET', '/admin/mandals').then(function (m) { ADMIN_MANDALS = m; ADMIN_LOADED.geo = true; if (ADMIN_TAB === 'geo') render(); });
     });
   });
-  else if (t === 'vehicles') api('GET', '/admin/vehicles').then(function (d) { ADMIN_VEHICLES = d; ADMIN_LOADED.vehicles = true; if (ADMIN_TAB === 'vehicles') render(); });
+  else if (t === 'vehicles') api('GET', '/admin/vehicles').then(function (d) {
+    ADMIN_VEHICLES = d;
+    api('GET', '/admin/mandals').then(function (m) { ADMIN_MANDALS = m; ADMIN_LOADED.vehicles = true; if (ADMIN_TAB === 'vehicles') render(); });
+  });
   else if (t === 'reasons') api('GET', '/admin/categories').then(function (c) {
     ADMIN_CATEGORIES = c;
     api('GET', '/admin/reasons').then(function (d) { ADMIN_REASONS = d; ADMIN_LOADED.reasons = true; if (ADMIN_TAB === 'reasons') render(); });
@@ -1053,9 +1074,14 @@ function adminCreateTeam() {
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminRenameTeam(code) {
-  var name = prompt('New name for ' + code + ':'); if (!name) return;
-  api('PUT', '/admin/teams/' + code, { name: name }).then(function () { toast('Renamed'); loadAdminSection('teams'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+  var t = ADMIN_TEAMS.find(function (x) { return x.code === code; });
+  editModal('Rename team ' + code,
+    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(t ? t.name : '') + '"></div>',
+    function () {
+      var name = gv('em_name'); if (!name) { toast('Name is required'); return; }
+      api('PUT', '/admin/teams/' + code, { name: name }).then(function () { closeModal2(); toast('Renamed'); loadAdminSection('teams'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
 }
 function adminToggleTeam(code, active) {
   api('PUT', '/admin/teams/' + code, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('teams'); })
@@ -1098,10 +1124,15 @@ function adminMoveCategory(code) {
 }
 function adminEditCategory(code) {
   var c = ADMIN_CATEGORIES.find(function (x) { return x.code === code; });
-  var label = prompt('Label:', c.label); if (label === null) return;
-  var owner = prompt('Default owner:', c.default_owner || ''); if (owner === null) return;
-  api('PUT', '/admin/categories/' + code, { label: label, default_owner: owner }).then(function () { toast('Updated'); loadAdminSection('categories'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+  editModal('Edit category ' + code,
+    '<div class="fld"><label for="em_label">Label</label><input id="em_label" value="' + esc(c.label) + '"></div>' +
+    '<div class="fld"><label for="em_owner">Default owner</label><input id="em_owner" value="' + esc(c.default_owner || '') + '"></div>',
+    function () {
+      var label = gv('em_label'); if (!label) { toast('Label is required'); return; }
+      api('PUT', '/admin/categories/' + code, { label: label, default_owner: gv('em_owner') })
+        .then(function () { closeModal2(); toast('Updated'); loadAdminSection('categories'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
 }
 function adminToggleCategory(code, active) {
   api('PUT', '/admin/categories/' + code, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('categories'); })
@@ -1126,7 +1157,8 @@ function viewAdminGeo() {
   var zoneRows = ADMIN_ZONES.map(function (z) {
     return '<tr><td><b>' + esc(z.name) + '</b></td><td>' + esc((META.teams || {})[z.team_code] || z.team_code) + '</td>' +
       '<td>' + (z.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
-      '<td><button class="btn ' + (z.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleZone(' + z.id + ',' + (!z.is_active) + ')">' + (z.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminEditZone(' + z.id + ')">Edit</button>' +
+      '<button class="btn ' + (z.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleZone(' + z.id + ',' + (!z.is_active) + ')">' + (z.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
   var districtOpts = ADMIN_DISTRICTS.filter(function (d) { return d.is_active; }).map(function (d) { return '<option value="' + d.id + '">' + esc(d.name) + '</option>'; }).join('');
   var zoneOpts = '<option value="">No zone (category-default routing)</option>' + ADMIN_ZONES.filter(function (z) { return z.is_active; }).map(function (z) { return '<option value="' + z.id + '">' + esc(z.name) + '</option>'; }).join('');
@@ -1135,7 +1167,8 @@ function viewAdminGeo() {
     var z = ADMIN_ZONES.find(function (x) { return x.id === m.zone_id; });
     return '<tr><td><b>' + esc(m.name) + '</b></td><td>' + esc(d ? d.name : m.district_id) + '</td><td>' + esc(z ? z.name : '—') + '</td>' +
       '<td>' + (m.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
-      '<td><button class="btn ' + (m.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleMandal(' + m.id + ',' + (!m.is_active) + ')">' + (m.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminEditMandal(' + m.id + ')">Edit</button>' +
+      '<button class="btn ' + (m.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleMandal(' + m.id + ',' + (!m.is_active) + ')">' + (m.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
   return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Districts</h4>' +
     '<table><thead><tr><th>Name</th><th>Status</th><th></th></tr></thead><tbody>' + districtRows + '</tbody></table></div>' +
@@ -1166,9 +1199,14 @@ function adminCreateDistrict() {
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminRenameDistrict(id) {
-  var name = prompt('New name:'); if (!name) return;
-  api('PUT', '/admin/districts/' + id, { name: name }).then(function () { toast('Renamed'); loadAdminSection('geo'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+  var d = ADMIN_DISTRICTS.find(function (x) { return x.id === id; });
+  editModal('Rename district',
+    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(d ? d.name : '') + '"></div>',
+    function () {
+      var name = gv('em_name'); if (!name) { toast('Name is required'); return; }
+      api('PUT', '/admin/districts/' + id, { name: name }).then(function () { closeModal2(); toast('Renamed'); loadAdminSection('geo'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
 }
 function adminToggleDistrict(id, active) {
   api('PUT', '/admin/districts/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('geo'); })
@@ -1184,6 +1222,19 @@ function adminToggleZone(id, active) {
   api('PUT', '/admin/zones/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('geo'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
+function adminEditZone(id) {
+  var z = ADMIN_ZONES.find(function (x) { return x.id === id; }); if (!z) return;
+  var teamOpts = Object.keys(META.teams).map(function (k) { return '<option value="' + k + '"' + (k === z.team_code ? ' selected' : '') + '>' + esc(META.teams[k]) + '</option>'; }).join('');
+  editModal('Edit zone',
+    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(z.name) + '"></div>' +
+    '<div class="fld"><label for="em_team">Team</label><select id="em_team">' + teamOpts + '</select></div>',
+    function () {
+      var name = gv('em_name'); if (!name) { toast('Zone name is required'); return; }
+      api('PUT', '/admin/zones/' + id, { name: name, team_code: document.getElementById('em_team').value })
+        .then(function () { closeModal2(); toast('Zone updated'); loadAdminSection('geo'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
+}
 function adminCreateMandal() {
   var name = gv('geo_mandal_name'), did = document.getElementById('geo_mandal_district').value, zid = document.getElementById('geo_mandal_zone').value;
   if (!name || !did) return toast('Mandal name and district are required');
@@ -1194,16 +1245,38 @@ function adminToggleMandal(id, active) {
   api('PUT', '/admin/mandals/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('geo'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
+function adminEditMandal(id) {
+  var m = ADMIN_MANDALS.find(function (x) { return x.id === id; }); if (!m) return;
+  var distOpts = ADMIN_DISTRICTS.filter(function (d) { return d.is_active; }).map(function (d) { return '<option value="' + d.id + '"' + (d.id === m.district_id ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('');
+  var zoneOpts = '<option value="">No zone</option>' + ADMIN_ZONES.filter(function (z) { return z.is_active; }).map(function (z) { return '<option value="' + z.id + '"' + (z.id === m.zone_id ? ' selected' : '') + '>' + esc(z.name) + '</option>'; }).join('');
+  editModal('Edit mandal',
+    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(m.name) + '"></div>' +
+    '<div class="fld"><label for="em_district">District</label><select id="em_district">' + distOpts + '</select></div>' +
+    '<div class="fld"><label for="em_zone">Zone (optional)</label><select id="em_zone">' + zoneOpts + '</select></div>',
+    function () {
+      var name = gv('em_name'), did = document.getElementById('em_district').value;
+      if (!name || !did) { toast('Mandal name and district are required'); return; }
+      var zid = document.getElementById('em_zone').value;
+      // Clear-sentinel convention (see crud_geo.update_mandal): 0 clears
+      // zone_id, omitted/None leaves it untouched - always send a real number.
+      api('PUT', '/admin/mandals/' + id, { name: name, district_id: +did, zone_id: zid ? +zid : 0 })
+        .then(function () { closeModal2(); toast('Mandal updated'); loadAdminSection('geo'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
+}
 
 function viewAdminVehicles() {
   var rows = ADMIN_VEHICLES.map(function (v) {
+    var mandal = ADMIN_MANDALS.find(function (x) { return x.id === v.last_mandal_id; });
     return '<tr><td><b>' + esc(v.registration_no) + '</b></td>' +
+      '<td>' + esc(mandal ? mandal.name : '—') + '</td>' +
       '<td>' + (v.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
-      '<td><button class="btn ' + (v.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleVehicle(' + v.id + ',' + (!v.is_active) + ')">' + (v.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminEditVehicle(' + v.id + ')">Edit</button>' +
+      '<button class="btn ' + (v.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleVehicle(' + v.id + ',' + (!v.is_active) + ')">' + (v.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
   return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Vehicles</h4>' +
-    '<div class="muted" style="margin-bottom:10px">A registry entry only tracks the registration number - MMU vehicles move between Mandals, so location is captured fresh on each ticket and never stored here.</div>' +
-    '<div style="overflow-x:auto"><table><thead><tr><th>Registration no.</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+    '<div class="muted" style="margin-bottom:10px">A registry entry only tracks the registration number - MMU vehicles move between Mandals, so location is captured fresh on each ticket and never stored here. "Last known Mandal" is an optional administrative note, not the routing source.</div>' +
+    '<div style="overflow-x:auto"><table><thead><tr><th>Registration no.</th><th>Last known Mandal</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
     '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add vehicle</h4><div class="grid3">' +
     '<div class="fld"><label>Registration number</label><input id="veh_reg" placeholder="AP39UL4276"></div>' +
     '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateVehicle()">Add vehicle</button></div>' +
@@ -1217,6 +1290,18 @@ function adminCreateVehicle() {
 function adminToggleVehicle(id, active) {
   api('PUT', '/admin/vehicles/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('vehicles'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+}
+function adminEditVehicle(id) {
+  var v = ADMIN_VEHICLES.find(function (x) { return x.id === id; }); if (!v) return;
+  var mandOpts = '<option value="">No mandal</option>' + ADMIN_MANDALS.filter(function (m) { return m.is_active; }).map(function (m) { return '<option value="' + m.id + '"' + (m.id === v.last_mandal_id ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('');
+  editModal('Edit vehicle — ' + v.registration_no,
+    '<div class="fld"><label for="em_mandal">Last known Mandal</label><select id="em_mandal">' + mandOpts + '</select></div>',
+    function () {
+      var mid = document.getElementById('em_mandal').value;
+      api('PUT', '/admin/vehicles/' + id, { last_mandal_id: mid ? +mid : 0 })
+        .then(function () { closeModal2(); toast('Vehicle updated'); loadAdminSection('vehicles'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
 }
 
 function viewAdminReasons() {
@@ -1253,9 +1338,13 @@ function adminCreateReason() {
 }
 function adminRenameReason(code) {
   var r = ADMIN_REASONS.find(function (x) { return x.code === code; });
-  var label = prompt('New label:', r ? r.label : ''); if (!label) return;
-  api('PUT', '/admin/reasons/' + code, { label: label }).then(function () { toast('Renamed'); loadAdminSection('reasons'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+  editModal('Rename reason',
+    '<div class="fld"><label for="em_label">Label</label><input id="em_label" value="' + esc(r ? r.label : '') + '"></div>',
+    function () {
+      var label = gv('em_label'); if (!label) { toast('Label is required'); return; }
+      api('PUT', '/admin/reasons/' + code, { label: label }).then(function () { closeModal2(); toast('Renamed'); loadAdminSection('reasons'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
 }
 function adminToggleReason(code, active) {
   api('PUT', '/admin/reasons/' + code, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('reasons'); })
@@ -1409,20 +1498,31 @@ function adminCreateUser() {
 }
 function adminEditUserLocation(id) {
   var u = ADMIN_USERS.find(function (x) { return x.id === id; }); if (!u) return;
-  var distList = ADMIN_DISTRICTS.filter(function (d) { return d.is_active; }).map(function (d) { return d.id + '=' + d.name; }).join(', ');
-  var did = prompt('District ID (0 to clear)\nAvailable: ' + distList, u.district_id || ''); if (did === null) return;
-  var patch = { district_id: did === '' ? null : +did };
-  if (u.role === 'LT') {
-    var mandList = ADMIN_MANDALS.filter(function (m) { return m.is_active; }).map(function (m) { return m.id + '=' + m.name; }).join(', ');
-    var mid = prompt('Mandal ID (0 to clear)\nAvailable: ' + mandList, u.mandal_id || ''); if (mid === null) return;
-    var vehList = ADMIN_VEHICLES.filter(function (v) { return v.is_active; }).map(function (v) { return v.id + '=' + v.registration_no; }).join(', ');
-    var vid = prompt('Vehicle ID (0 to clear)\nAvailable: ' + vehList, u.vehicle_id || ''); if (vid === null) return;
-    patch.mandal_id = mid === '' ? null : +mid;
-    patch.vehicle_id = vid === '' ? null : +vid;
+  var isLt = u.role === 'LT';
+  var distOpts = '<option value="">No district</option>' + ADMIN_DISTRICTS.filter(function (d) { return d.is_active; })
+    .map(function (d) { return '<option value="' + d.id + '"' + (d.id === u.district_id ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('');
+  var fields = '<div class="fld"><label for="em_district">District</label><select id="em_district">' + distOpts + '</select></div>';
+  if (isLt) {
+    var mandOpts = '<option value="">No mandal</option>' + ADMIN_MANDALS.filter(function (m) { return m.is_active; })
+      .map(function (m) { return '<option value="' + m.id + '"' + (m.id === u.mandal_id ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('');
+    var vehOpts = '<option value="">No vehicle</option>' + ADMIN_VEHICLES.filter(function (v) { return v.is_active; })
+      .map(function (v) { return '<option value="' + v.id + '"' + (v.id === u.vehicle_id ? ' selected' : '') + '>' + esc(v.registration_no) + '</option>'; }).join('');
+    fields += '<div class="fld"><label for="em_mandal">Mandal</label><select id="em_mandal">' + mandOpts + '</select></div>' +
+      '<div class="fld"><label for="em_vehicle">Vehicle</label><select id="em_vehicle">' + vehOpts + '</select></div>';
   }
-  api('PUT', '/admin/users/' + id, patch)
-    .then(function () { toast('Location updated'); loadAdminSection('users'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+  editModal('Edit location — ' + u.name, fields, function () {
+    // Clear-sentinel convention (app/crud/crud_user.py's update_user): 0
+    // clears the field to NULL, None/omitted leaves it untouched - always
+    // send a real number, never null, or a cleared field silently no-ops.
+    var patch = { district_id: gv('em_district') ? +gv('em_district') : 0 };
+    if (isLt) {
+      patch.mandal_id = gv('em_mandal') ? +gv('em_mandal') : 0;
+      patch.vehicle_id = gv('em_vehicle') ? +gv('em_vehicle') : 0;
+    }
+    api('PUT', '/admin/users/' + id, patch)
+      .then(function () { closeModal2(); toast('Location updated'); loadAdminSection('users'); })
+      .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+  });
 }
 function adminChangeRole(id) {
   var role = document.getElementById('au_role_' + id).value;
@@ -1438,9 +1538,14 @@ function adminToggleTeamManager(id, isManager) {
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminResetPassword(id) {
-  var pw = prompt('New temporary password (min 8 characters):'); if (!pw) return;
-  api('PUT', '/admin/users/' + id, { password: pw }).then(function () { toast('Password reset'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+  editModal('Reset password',
+    '<div class="fld"><label for="em_pw">New temporary password (min 8 characters)</label><input id="em_pw" type="password"></div>',
+    function () {
+      var pw = gv('em_pw');
+      if (pw.length < 8) { toast('Password must be at least 8 characters'); return; }
+      api('PUT', '/admin/users/' + id, { password: pw }).then(function () { closeModal2(); toast('Password reset'); })
+        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+    });
 }
 
 function viewAdminAudit() {
