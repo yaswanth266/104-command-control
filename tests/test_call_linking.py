@@ -16,7 +16,7 @@ def _raise_lt_ticket(client):
 
 def _register_call(client, **overrides):
     body = {"mmu_vehicle": "AP1", "district": "D", "problem": "regular call",
-            "category": "MACHINE", "priority": "P2"}
+            "category": "MACHINE", "priority": "P2", "caller_name": "Test Caller", "caller_phone": "9876543210"}
     body.update(overrides)
     r = client.post("/cccapi/ticket", json=body, headers=CT)
     assert r.status_code == 200, r.text

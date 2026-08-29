@@ -60,7 +60,7 @@ def test_new_category_routes_a_real_ticket(client):
     }, headers=MGR)
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP1", "district": "D1", "problem": "scanner down",
-        "category": "IMAGING", "priority": "P2",
+        "category": "IMAGING", "priority": "P2", "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=MGR)
     assert r.status_code == 200, r.text
     assert r.json()["team"] == "XRAY"

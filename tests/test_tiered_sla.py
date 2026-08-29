@@ -13,7 +13,7 @@ MGR = auth_headers("CC_MANAGER")
 def make_ticket(client, tat_mins=240):
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP1", "district": "D", "problem": "tiered sla test",
-        "category": "MACHINE", "priority": "P1",
+        "category": "MACHINE", "priority": "P1", "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r.status_code == 200, r.text
     tid = r.json()["id"]

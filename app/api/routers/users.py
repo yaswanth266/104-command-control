@@ -8,8 +8,8 @@ from app.crud.crud_user import get_users, get_active_users_by_role
 router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("")
-def list_users(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
-    users = get_users(db)
+def list_users(q: str = "", db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    users = get_users(db, q)
     return [
         {"id": u.id, "username": u.username, "name": u.name, "role": u.role, "phone": u.phone, "active": u.active,
          "hr_emp_code": u.hr_emp_code, "reporting_manager_id": u.reporting_manager_id,

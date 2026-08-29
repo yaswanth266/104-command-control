@@ -11,8 +11,18 @@ def get_user_by_username(db: Session, username: str):
 def get_user(db: Session, user_id: int):
     return db.query(User).filter(User.id == user_id).first()
 
-def get_users(db: Session):
-    return db.query(User).order_by(User.role, User.username).all()
+def get_users(db: Session, q: str = ""):
+    query = db.query(User)
+    if q:
+        from sqlalchemy import or_
+        search_pattern = f"%{q}%"
+        query = query.filter(or_(
+            User.username.like(search_pattern),
+            User.name.like(search_pattern),
+            User.phone.like(search_pattern),
+            User.hr_emp_code.like(search_pattern)
+        ))
+    return query.order_by(User.role, User.username).all()
 
 def get_active_users_by_role(db: Session, role: str):
     return db.query(User).filter(User.role == role, User.active == True).order_by(User.username).all()

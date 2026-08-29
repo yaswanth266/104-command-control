@@ -61,7 +61,7 @@ def test_category_without_route_by_zone_ignores_zone(client):
     m = make_mandal(client, "TestMandalIgnored", d, zone_id=z)
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP1", "district": "D", "problem": "software bug", "category": "APPLICATION",
-        "priority": "P2", "mandal_id": m,
+        "priority": "P2", "mandal_id": m, "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r.status_code == 200, r.text
     assert r.json()["team"] == "APPLICATION"  # category default, NOT the zone's TECHNICAL team
@@ -75,7 +75,7 @@ def test_category_with_route_by_zone_uses_zone_team(client):
     try:
         r = client.post("/cccapi/ticket", json={
             "mmu_vehicle": "AP1", "district": "D", "problem": "machine broke", "category": "MACHINE",
-            "priority": "P2", "mandal_id": m,
+            "priority": "P2", "mandal_id": m, "caller_name": "Test Caller", "caller_phone": "9876543210",
         }, headers=CT)
         assert r.status_code == 200, r.text
         assert r.json()["team"] == "TECHNICAL"  # zone's team wins over MACHINE's own SERVICE default
@@ -92,7 +92,7 @@ def test_route_by_zone_falls_back_when_mandal_has_no_zone(client):
     try:
         r = client.post("/cccapi/ticket", json={
             "mmu_vehicle": "AP1", "district": "D", "problem": "machine broke", "category": "MACHINE",
-            "priority": "P2", "mandal_id": m,
+            "priority": "P2", "mandal_id": m, "caller_name": "Test Caller", "caller_phone": "9876543210",
         }, headers=CT)
         assert r.status_code == 200, r.text
         assert r.json()["team"] == "SERVICE"  # category default fallback
@@ -109,7 +109,7 @@ def test_ticket_geo_snapshot_survives_mandal_reparenting(client):
 
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP1", "district": "D", "problem": "issue", "category": "MACHINE",
-        "priority": "P2", "district_id": d1, "mandal_id": m,
+        "priority": "P2", "district_id": d1, "mandal_id": m, "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r.status_code == 200, r.text
     tid = r.json()["id"]
@@ -136,11 +136,11 @@ def test_vehicle_not_tied_to_mandal(client):
 
     r1 = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP39TESTMOVE", "vehicle_id": vid, "district": "D", "problem": "issue A",
-        "category": "MACHINE", "priority": "P3", "mandal_id": m1,
+        "category": "MACHINE", "priority": "P3", "mandal_id": m1, "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     r2 = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP39TESTMOVE", "vehicle_id": vid, "district": "D", "problem": "issue B",
-        "category": "MACHINE", "priority": "P3", "mandal_id": m2,
+        "category": "MACHINE", "priority": "P3", "mandal_id": m2, "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r1.status_code == 200 and r2.status_code == 200
     t1 = client.get(f"/cccapi/ticket/{r1.json()['id']}", headers=MGR).json()["ticket"]

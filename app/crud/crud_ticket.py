@@ -60,7 +60,8 @@ def _critical_window_sql(sla_cfg):
 
 def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope: str = "", q: str = "",
                  priority: str = "", category: str = "", mmu_vehicle: str = "", district: str = "",
-                 date_from: str = "", date_to: str = "", page: int = 1, page_size: int = 50):
+                 date_from: str = "", date_to: str = "", page: int = 1, page_size: int = 50,
+                 sort_by: str = "", sort_desc: bool = False):
     query = db.query(Ticket)
 
     role = user.get("role")
@@ -110,8 +111,18 @@ def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope
             Ticket.district.like(search_pattern)
         ))
 
-    # Order by priority P1..P4 and then due_at. SQLAlchemy text is best for FIELD
-    query = query.order_by(text("FIELD(priority, 'P1', 'P2', 'P3', 'P4')"), Ticket.due_at.asc())
+    if sort_by == "created_at":
+        query = query.order_by(Ticket.created_at.desc() if sort_desc else Ticket.created_at.asc())
+    elif sort_by == "due_at":
+        query = query.order_by(Ticket.due_at.desc() if sort_desc else Ticket.due_at.asc())
+    elif sort_by == "priority":
+        p_order = text("FIELD(priority, 'P4', 'P3', 'P2', 'P1')") if sort_desc else text("FIELD(priority, 'P1', 'P2', 'P3', 'P4')")
+        query = query.order_by(p_order, Ticket.due_at.asc())
+    elif sort_by == "ticket_no":
+        query = query.order_by(Ticket.ticket_no.desc() if sort_desc else Ticket.ticket_no.asc())
+    else:
+        # Default order
+        query = query.order_by(text("FIELD(priority, 'P1', 'P2', 'P3', 'P4')"), Ticket.due_at.asc())
 
     total = query.count()
     page = max(1, page)

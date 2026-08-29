@@ -8,7 +8,7 @@ MGR = auth_headers("CC_MANAGER")
 def make_ticket(client, priority="P2", category="MACHINE"):
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP39TEST1", "district": "Test District", "problem": "workflow test",
-        "category": category, "priority": priority,
+        "category": category, "priority": priority, "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r.status_code == 200, r.text
     return r.json()["id"]
@@ -109,3 +109,42 @@ def test_escalate_blocked_on_closed_ticket(client):
         client.post("/cccapi/ticket/action", json={"id": tid, "action": action, **extra}, headers=SVC)
     r = client.post("/cccapi/ticket/action", json={"id": tid, "action": "escalate"}, headers=SVC)
     assert r.status_code == 409
+
+
+# ---------- Register Call: mandatory caller name/phone ----------
+
+def _register_call(client, **overrides):
+    body = {"mmu_vehicle": "AP39TEST1", "district": "Test District", "problem": "workflow test",
+            "category": "MACHINE", "priority": "P2", "caller_name": "Test Caller", "caller_phone": "9876543210"}
+    body.update(overrides)
+    return client.post("/cccapi/ticket", json=body, headers=CT)
+
+
+def test_register_call_requires_caller_name(client):
+    r = _register_call(client, caller_name="")
+    assert r.status_code == 400
+
+
+def test_register_call_requires_caller_name_present(client):
+    r = _register_call(client, caller_name=None)
+    assert r.status_code == 400
+
+
+def test_register_call_rejects_short_phone(client):
+    r = _register_call(client, caller_phone="98765")
+    assert r.status_code == 400
+
+
+def test_register_call_rejects_phone_not_starting_6_9(client):
+    r = _register_call(client, caller_phone="5876543210")
+    assert r.status_code == 400
+
+
+def test_register_call_rejects_non_numeric_phone(client):
+    r = _register_call(client, caller_phone="98765abcde")
+    assert r.status_code == 400
+
+
+def test_register_call_accepts_valid_phone(client):
+    r = _register_call(client, caller_phone="9876543210")
+    assert r.status_code == 200, r.text

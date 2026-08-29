@@ -15,6 +15,7 @@ def _make_district_ticket(client, district_id, priority="P1"):
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP2", "district": "D", "district_id": district_id,
         "problem": "local lead routing test", "category": "MACHINE", "priority": priority,
+        "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r.status_code == 200, r.text
     return r.json()["id"]

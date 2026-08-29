@@ -2,6 +2,7 @@ import datetime
 from tests.conftest import auth_headers
 from app.db.database import SessionLocal
 from app.models.ticket import Ticket
+from app.services.sla_sweep import run_sla_sweep_once
 
 CT = auth_headers("CALL_TAKER")
 SVC = auth_headers("SERVICE")
@@ -12,6 +13,7 @@ def make_ticket(client, priority="P2", category="MACHINE", problem="workflow tes
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP39TEST1", "district": "Test District", "problem": problem,
         "category": category, "priority": priority, "vip": vip,
+        "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r.status_code == 200, r.text
     return r.json()
@@ -80,6 +82,47 @@ def test_pending_reason_update_does_not_reset_pause_clock(client):
     assert r.status_code == 200
     after = db_get(tid)
     assert 25 <= after.paused_minutes <= 35
+
+
+def test_resume_work_moves_pending_ticket_back_to_in_progress(client):
+    """The 'Resume work' button (renderT() in app.js) calls the same 'start'
+    action - this confirms the backend transition it relies on."""
+    body = make_ticket(client)
+    tid = body["id"]
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=SVC)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "pending", "pending_reason": "waiting"}, headers=SVC)
+    assert db_get(tid).status == "PENDING"
+
+    r = client.post("/cccapi/ticket/action", json={"id": tid, "action": "start"}, headers=SVC)
+    assert r.status_code == 200, r.text
+    assert db_get(tid).status == "IN_PROGRESS"
+
+
+def test_stuck_pending_auto_escalates_to_cc_manager(client):
+    body = make_ticket(client)
+    tid = body["id"]
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=SVC)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "pending", "pending_reason": "waiting"}, headers=SVC)
+    db_set(tid, pending_since=datetime.datetime.now() - datetime.timedelta(hours=25))
+
+    run_sla_sweep_once()
+
+    t = db_get(tid)
+    assert t.escalated is True
+    assert t.escalated_to == "CC_MANAGER"
+    assert "Pending" in t.escalation_note
+
+
+def test_pending_not_yet_stuck_is_not_escalated(client):
+    body = make_ticket(client)
+    tid = body["id"]
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=SVC)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "pending", "pending_reason": "waiting"}, headers=SVC)
+    db_set(tid, pending_since=datetime.datetime.now() - datetime.timedelta(hours=2))
+
+    run_sla_sweep_once()
+
+    assert db_get(tid).escalated is False
 
 
 def test_repriority_preserves_accumulated_pause(client):

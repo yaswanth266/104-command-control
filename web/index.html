@@ -25,6 +25,7 @@
 
 <div id="app" class="hide">
   <div class="top">
+    <button class="nav-toggle" id="nav_toggle" onclick="toggleSidebar()" aria-label="Toggle Menu">&#9776;</button>
     <span class="mark" style="width:26px;height:26px"><i style="background:#FBBC41"></i><i style="background:#FB8B00"></i><i style="background:#CD004D"></i><i style="background:#4E148C"></i></span>
     <div class="wm">Central Command Center</div><div class="tag">104 DIAGNOSTIC</div>
     <div class="sp"></div>
@@ -32,15 +33,22 @@
     <div class="who" id="who"></div>
     <button class="lo" onclick="logout()">Logout</button>
   </div>
-  <div class="wrap">
-    <div class="tabs" id="tabs"></div>
-    <div id="body"></div>
+  <div class="app-layout">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-label">NAVIGATION MENU</span>
+      </div>
+      <div class="nav-tree" id="nav_tree"></div>
+    </aside>
+    <main class="main-content">
+      <div id="body"></div>
+    </main>
   </div>
 </div>
 <div id="modal"></div>
 <div id="npanel"></div>
 
-<script src="/static/app.js"></script>
+<script src="/static/app.js?v=6"></script>
 
 </body>
 </html>

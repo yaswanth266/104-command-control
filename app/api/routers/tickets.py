@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.api.deps import get_current_user
@@ -10,14 +10,29 @@ from app.crud.crud_event import get_events_by_ticket, create_event
 from app.crud.crud_category import get_category_map, resolve_team
 from app.crud.crud_team import get_team_map
 from app.crud.crud_settings import get_sla_config, detect_vip
+from app.crud.crud_attachment import create_attachment, get_attachments_by_ticket
 from app.services.ticket_service import process_ticket_action
 from app.services.formatting import enrich
 from app.services.notifications import notify_new_ticket
+from app.services.photos import save_ticket_attachment
 from app.core.config import PRIORITY
 import datetime
+import re
+
+_PHONE_RE = re.compile(r"^[6-9]\d{9}$")
 
 router = APIRouter(prefix="/ticket", tags=["tickets"])
 collection_router = APIRouter(prefix="/tickets", tags=["tickets"])
+
+def _can_view_ticket(ticket: Ticket, current_user: dict) -> bool:
+    """Own team, the Global Team Executive/Call Taker, or the LT who raised
+    it (mirrors ticket_service.py's is_originating_lt) - viewing-adjacent
+    access, not a workflow-gated action, so attachments reuse this rather
+    than ticket_service.py's stricter per-action permission checks."""
+    role = current_user["role"]
+    if role in ("CC_MANAGER", "CALL_TAKER") or role == ticket.team:
+        return True
+    return role == "LT" and ticket.created_by == current_user["username"]
 
 @router.post("")
 def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
@@ -31,6 +46,10 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         raise HTTPException(400, "Priority must be P1-P4")
     if not (b.problem or "").strip():
         raise HTTPException(400, "Nature of the problem is required")
+    if not (b.caller_name or "").strip():
+        raise HTTPException(400, "Caller name is required")
+    if not _PHONE_RE.match((b.caller_phone or "").strip()):
+        raise HTTPException(400, "Caller contact must be a valid 10-digit mobile number")
 
     is_vip, vip_reason = detect_vip(db, b.vip, b.problem, b.impact)
     priority = "P1" if is_vip else b.priority
@@ -81,10 +100,12 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
 def list_tickets(status: str = "", team: str = "", scope: str = "", q_: str = "",
                  priority: str = "", category: str = "", mmu_vehicle: str = "", district: str = "",
                  date_from: str = "", date_to: str = "", page: int = 1, page_size: int = 50,
+                 sort_by: str = "", sort_desc: bool = False,
                  db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     tickets, total = get_tickets(db, current_user, status=status, team=team, scope=scope, q=q_,
                                   priority=priority, category=category, mmu_vehicle=mmu_vehicle, district=district,
-                                  date_from=date_from, date_to=date_to, page=page, page_size=page_size)
+                                  date_from=date_from, date_to=date_to, page=page, page_size=page_size,
+                                  sort_by=sort_by, sort_desc=sort_desc)
     category_map, team_map, sla_cfg = get_category_map(db), get_team_map(db), get_sla_config(db)
     return {"count": len(tickets), "total": total, "page": page, "page_size": page_size,
             "rows": [enrich(t, category_map, team_map, sla_cfg) for t in tickets]}
@@ -150,3 +171,41 @@ def log_call(tid: int, b: LogCallIn, db: Session = Depends(get_db), current_user
         detail += f": {b.note}"
     create_event(db, t.id, current_user, "CALL_RECEIVED", detail)
     return {"ok": True, "ticket_no": t.ticket_no, "id": t.id}
+
+@router.post("/{tid}/attachments")
+def upload_attachment(tid: int, note: str = Form(""), file: UploadFile = File(...),
+                       db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Supporting evidence (photos, screenshots, reports) against a ticket at
+    any stage - optional, not tied to any one workflow action. See
+    save_ticket_attachment for the allowed types/size cap."""
+    t = get_ticket(db, tid)
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not _can_view_ticket(t, current_user):
+        raise HTTPException(403, "This ticket is not assigned to your department")
+    saved = save_ticket_attachment(file)
+    a = create_attachment(db, tid, saved["filename"], file.filename, file.content_type, saved["size_bytes"],
+                           current_user["username"], current_user["role"], note.strip() or None)
+    create_event(db, tid, current_user, "ATTACHMENT_ADDED", f"Attached {file.filename}" + (f": {note}" if note else ""))
+    return {"id": a.id, "filename": a.filename, "original_name": a.original_name, "content_type": a.content_type,
+            "size_bytes": a.size_bytes, "uploaded_by": a.uploaded_by, "note": a.note}
+
+@router.get("/{tid}/attachments")
+def list_attachments(tid: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    t = get_ticket(db, tid)
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not _can_view_ticket(t, current_user):
+        raise HTTPException(403, "This ticket is not assigned to your department")
+    rows = get_attachments_by_ticket(db, tid)
+    out = [{"id": a.id, "filename": a.filename, "original_name": a.original_name, "content_type": a.content_type,
+             "size_bytes": a.size_bytes, "uploaded_by": a.uploaded_by, "uploaded_by_role": a.uploaded_by_role,
+             "uploaded_at": a.uploaded_at.strftime("%Y-%m-%d %H:%M") if a.uploaded_at else None, "note": a.note}
+            for a in rows]
+    if t.photo_path:
+        out.insert(0, {
+            "id": 0, "filename": t.photo_path, "original_name": "LT_Photo.jpg", "content_type": "image/jpeg",
+            "size_bytes": 0, "uploaded_by": t.created_by, "uploaded_by_role": "LT",
+            "uploaded_at": t.created_at.strftime("%Y-%m-%d %H:%M") if t.created_at else None, "note": "Initial ticket photo"
+        })
+    return out

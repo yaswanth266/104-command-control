@@ -21,6 +21,11 @@ SLA_DEFAULT = {
     # being resolved this long, auto-escalate to CC_MANAGER (see
     # app/services/sla_sweep.py's _sweep_lt_cda_timeouts).
     "lt_cda_escalation_minutes": 60,
+    # If a ticket sits in PENDING this long (continuously, since it was last
+    # marked pending), auto-escalate to CC_MANAGER so a stalled wait-on-someone-
+    # else doesn't go unnoticed just because the TAT clock itself is paused
+    # for that stretch (see app/services/sla_sweep.py's _sweep_stuck_pending).
+    "pending_escalation_hours": 24,
 }
 
 VIP_KEYWORDS_DEFAULT = ["ceo", "collector", "director", "minister", "total shutdown"]
@@ -56,7 +61,8 @@ def get_sla_config(db: Session) -> dict:
 
 def update_sla_config(db: Session, patch: dict) -> dict:
     cfg = get_sla_config(db)
-    minute_fields = ("at_risk_minutes", "critical_minutes", "resolved_followup_hours", "reopen_window_hours", "lt_cda_escalation_minutes")
+    minute_fields = ("at_risk_minutes", "critical_minutes", "resolved_followup_hours", "reopen_window_hours",
+                     "lt_cda_escalation_minutes", "pending_escalation_hours")
     fraction_fields = ("at_risk_fraction", "critical_fraction", "assignee_warn_pct", "team_manager_warn_pct")
     for k, v in patch.items():
         if k not in cfg:

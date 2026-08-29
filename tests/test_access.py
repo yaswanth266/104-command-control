@@ -9,7 +9,7 @@ MGR = auth_headers("CC_MANAGER")
 def make_service_ticket(client):
     r = client.post("/cccapi/ticket", json={
         "mmu_vehicle": "AP39TEST1", "district": "Test District", "problem": "access test",
-        "category": "MACHINE", "priority": "P3",
+        "category": "MACHINE", "priority": "P3", "caller_name": "Test Caller", "caller_phone": "9876543210",
     }, headers=CT)
     assert r.status_code == 200, r.text
     return r.json()["id"]

@@ -96,6 +96,31 @@ def _sweep_lt_cda_timeouts(db: Session, now: datetime.datetime, threshold_minute
         create_event(db, t.id, _SYSTEM_ACTOR, "AUTO_ESCALATED", note)
         notify_escalated(db, t, note)
 
+def _sweep_stuck_pending(db: Session, now: datetime.datetime, threshold_hours: float):
+    """A ticket's TAT clock is effectively paused while it's PENDING (see
+    ticket_service.py's setf, which credits the elapsed pending time back to
+    due_at once it moves again) - which means a ticket someone forgot about
+    in PENDING would otherwise never trip the BREACHED auto-escalation above,
+    no matter how long it sits. This is a separate trigger (time since
+    pending_since, not TAT) so a long-stalled wait-on-someone-else still
+    surfaces to the CC Manager."""
+    cutoff = now - datetime.timedelta(hours=threshold_hours)
+    stuck = db.query(Ticket).filter(
+        Ticket.status == "PENDING",
+        Ticket.escalated == False,
+        Ticket.pending_since.isnot(None),
+        Ticket.pending_since <= cutoff,
+    ).all()
+    for t in stuck:
+        note = f"Auto-escalated: stuck in Pending for over {threshold_hours}h"
+        t.escalated = True
+        t.escalated_at = now
+        t.escalated_to = "CC_MANAGER"
+        t.escalation_note = note
+        db.commit()
+        create_event(db, t.id, _SYSTEM_ACTOR, "AUTO_ESCALATED", note)
+        notify_escalated(db, t, note)
+
 def _sweep_pending_confirmations(db: Session, now: datetime.datetime, followup_hours: float):
     cutoff = now - datetime.timedelta(hours=followup_hours)
     stalled = db.query(Ticket).filter(Ticket.status == "RESOLVED", Ticket.resolved_at.isnot(None), Ticket.resolved_at <= cutoff).all()
@@ -115,6 +140,7 @@ def run_sla_sweep_once():
         _sweep_open_tickets(db, now, sla_cfg)
         _sweep_pending_confirmations(db, now, sla_cfg["resolved_followup_hours"])
         _sweep_lt_cda_timeouts(db, now, sla_cfg["lt_cda_escalation_minutes"])
+        _sweep_stuck_pending(db, now, sla_cfg["pending_escalation_hours"])
     except Exception:
         logger.exception("SLA sweep pass failed")
         db.rollback()
