@@ -83,6 +83,13 @@ class SlaUpdate(BaseModel):
 class DispatchUpdate(BaseModel):
     local_team_lead_enabled: Optional[bool] = None
 
+class WebhookConfigUpdate(BaseModel):
+    url: Optional[str] = None
+    secret: Optional[str] = None
+    enabled: Optional[bool] = None
+    events: Optional[List[str]] = None
+    timeout_seconds: Optional[float] = None
+
 class UserIn(BaseModel):
     username: str
     name: str

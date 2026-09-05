@@ -39,3 +39,14 @@ def mark_read(db: Session, notification_id: int, role: str, username: str = None
     db.commit()
     db.refresh(n)
     return n
+
+def mark_all_read(db: Session, role: str, username: str = None):
+    q = db.query(Notification).filter(Notification.read_at.is_(None))
+    if role != "CC_MANAGER":
+        q = q.filter(or_(Notification.audience_role == role, Notification.audience_username == username))
+    count = q.count()
+    now = datetime.datetime.now()
+    q.update({Notification.read_at: now}, synchronize_session=False)
+    db.commit()
+    return count
+

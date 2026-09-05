@@ -18,6 +18,7 @@ from app.crud.crud_settings import get_sla_config
 from app.services.formatting import enrich
 from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_photo
+from app.services.webhooks import dispatch_ticket_event
 
 # Isolated from the main ticket router (tickets.py), same as intake.py is
 # isolated for its own caller type - an LT never touches the department-facing
@@ -115,6 +116,7 @@ def create_lt_ticket(
                  + (f" [zone-routed]" if route["zone_id"] else ""),
                  new_status=db_ticket.status)
     notify_new_ticket(db, db_ticket)
+    dispatch_ticket_event(db, "ticket.created", db_ticket, current_user["username"])
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": route["team"], "priority": priority}
 

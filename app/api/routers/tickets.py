@@ -15,6 +15,7 @@ from app.services.ticket_service import process_ticket_action
 from app.services.formatting import enrich
 from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_attachment
+from app.services.webhooks import dispatch_ticket_event
 from app.core.config import PRIORITY
 import datetime
 import re
@@ -92,6 +93,7 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         detail += f" - VIP escalation ({vip_reason})"
     create_event(db, db_ticket.id, current_user, "CREATED", detail, new_status=db_ticket.status)
     notify_new_ticket(db, db_ticket)
+    dispatch_ticket_event(db, "ticket.created", db_ticket, current_user["username"])
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "owner": r["owner"],
             "tat_mins": tat, "priority": priority, "vip": is_vip}
@@ -170,6 +172,7 @@ def log_call(tid: int, b: LogCallIn, db: Session = Depends(get_db), current_user
     if b.note:
         detail += f": {b.note}"
     create_event(db, t.id, current_user, "CALL_RECEIVED", detail)
+    dispatch_ticket_event(db, "ticket.note_added", t, current_user["username"], note=detail)
     return {"ok": True, "ticket_no": t.ticket_no, "id": t.id}
 
 @router.post("/{tid}/attachments")
@@ -186,7 +189,9 @@ def upload_attachment(tid: int, note: str = Form(""), file: UploadFile = File(..
     saved = save_ticket_attachment(file)
     a = create_attachment(db, tid, saved["filename"], file.filename, file.content_type, saved["size_bytes"],
                            current_user["username"], current_user["role"], note.strip() or None)
-    create_event(db, tid, current_user, "ATTACHMENT_ADDED", f"Attached {file.filename}" + (f": {note}" if note else ""))
+    detail = f"Attached {file.filename}" + (f": {note}" if note else "")
+    create_event(db, tid, current_user, "ATTACHMENT_ADDED", detail)
+    dispatch_ticket_event(db, "ticket.note_added", t, current_user["username"], note=detail)
     return {"id": a.id, "filename": a.filename, "original_name": a.original_name, "content_type": a.content_type,
             "size_bytes": a.size_bytes, "uploaded_by": a.uploaded_by, "note": a.note}
 

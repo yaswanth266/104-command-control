@@ -9,6 +9,7 @@ from app.crud.crud_category import resolve_team
 from app.crud.crud_settings import detect_vip
 from app.crud.crud_event import create_event
 from app.services.notifications import notify_new_ticket
+from app.services.webhooks import dispatch_ticket_event
 import datetime
 
 router = APIRouter(prefix="/intake", tags=["intake"])
@@ -86,5 +87,11 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
         ev_detail += f" - VIP escalation ({vip_reason})"
     create_event(db, db_ticket.id, actor_info, "CREATED", ev_detail, new_status=db_ticket.status)
     notify_new_ticket(db, db_ticket)
+    # Outbound webhook (see app/services/webhooks.py): reflects the ticket back
+    # out using CCC's OWN category/priority master data (cat/pr above, already
+    # mapped from whatever terminology this external caller used), so a
+    # subscribed external system consumes CCC's classification directly rather
+    # than maintaining its own inbound mapping.
+    dispatch_ticket_event(db, "ticket.created", db_ticket, actor_info["username"])
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "priority": pr, "category": cat, "vip": is_vip}

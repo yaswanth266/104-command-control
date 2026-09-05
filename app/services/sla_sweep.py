@@ -9,6 +9,7 @@ from app.crud.crud_notification import create_notification, notification_exists
 from app.crud.crud_settings import get_sla_config, get_dispatch_config
 from app.crud.crud_user import get_team_managers, get_local_team_lead
 from app.services.notifications import notify_escalated
+from app.services.webhooks import dispatch_ticket_event
 from app.core.config import SLA_SWEEP_SECONDS
 from app.services.formatting import sla_tier
 
@@ -41,6 +42,7 @@ def _sweep_open_tickets(db: Session, now: datetime.datetime, sla_cfg: dict):
                 db.commit()
                 create_event(db, t.id, _SYSTEM_ACTOR, "AUTO_ESCALATED", "Auto-escalated to CC Manager: TAT breached")
                 create_notification(db, "CC_MANAGER", t.id, "ESCALATED", f"Ticket {t.ticket_no} auto-escalated: TAT breached")
+                dispatch_ticket_event(db, "ticket.escalated", t, _SYSTEM_ACTOR["username"], note="Auto-escalated: TAT breached")
         elif pct_used >= sla_cfg["team_manager_warn_pct"]:
             if not notification_exists(db, t.id, "TAT_TEAM_MANAGER_WARN"):
                 # Local Team Lead routing (future, dormant until enabled):
@@ -95,6 +97,7 @@ def _sweep_lt_cda_timeouts(db: Session, now: datetime.datetime, threshold_minute
         db.commit()
         create_event(db, t.id, _SYSTEM_ACTOR, "AUTO_ESCALATED", note)
         notify_escalated(db, t, note)
+        dispatch_ticket_event(db, "ticket.escalated", t, _SYSTEM_ACTOR["username"], note=note)
 
 def _sweep_stuck_pending(db: Session, now: datetime.datetime, threshold_hours: float):
     """A ticket's TAT clock is effectively paused while it's PENDING (see
@@ -120,6 +123,7 @@ def _sweep_stuck_pending(db: Session, now: datetime.datetime, threshold_hours: f
         db.commit()
         create_event(db, t.id, _SYSTEM_ACTOR, "AUTO_ESCALATED", note)
         notify_escalated(db, t, note)
+        dispatch_ticket_event(db, "ticket.escalated", t, _SYSTEM_ACTOR["username"], note=note)
 
 def _sweep_pending_confirmations(db: Session, now: datetime.datetime, followup_hours: float):
     cutoff = now - datetime.timedelta(hours=followup_hours)

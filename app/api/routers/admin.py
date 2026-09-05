@@ -5,9 +5,10 @@ from app.api.deps import require_admin
 from app.schemas.admin import (TeamIn, TeamUpdate, CategoryIn, CategoryUpdate, SlaUpdate, UserIn, UserUpdate,
                                 DistrictIn, DistrictUpdate, ZoneIn, ZoneUpdate, MandalIn, MandalUpdate,
                                 VehicleIn, VehicleUpdate, ReasonIn, ReasonUpdate, MachineIn, MachineUpdate,
-                                DispatchUpdate)
+                                DispatchUpdate, WebhookConfigUpdate)
 from app.crud import crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason, crud_machine
 from app.crud.crud_admin_event import log_admin_event, get_admin_events
+from app.services import webhooks as webhook_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -70,6 +71,7 @@ def list_categories(db: Session = Depends(get_db), current_user: dict = Depends(
 def create_category(b: CategoryIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     c = crud_category.create_category(db, b.code, b.label, b.team_code, b.default_owner, b.route_by_zone, b.visible_to_lt)
     log_admin_event(db, current_user, "CATEGORY_CREATED", "category", c.code, f"label={c.label}, team={c.team_code}")
+    webhook_service.dispatch_category_event(db, "category.created", c, current_user["username"])
     return _category_out(c)
 
 @router.put("/categories/{code}")
@@ -80,6 +82,7 @@ def update_category(code: str, b: CategoryUpdate, db: Session = Depends(get_db),
     log_admin_event(db, current_user, "CATEGORY_UPDATED", "category", c.code,
                      f"label={c.label}, team={c.team_code}, is_active={c.is_active}, "
                      f"route_by_zone={c.route_by_zone}, visible_to_lt={c.visible_to_lt}")
+    webhook_service.dispatch_category_event(db, "category.updated", c, current_user["username"])
     return _category_out(c)
 
 # ---------- reasons ----------
@@ -203,6 +206,9 @@ def update_sla(b: SlaUpdate, db: Session = Depends(get_db), current_user: dict =
     if b.tat:
         out["tat"] = crud_settings.update_tat_map(db, b.tat)
         log_admin_event(db, current_user, "TAT_UPDATED", "settings", "tat", str(out["tat"]))
+        for priority_code in b.tat:
+            if priority_code in out["tat"]:
+                webhook_service.dispatch_priority_event(db, priority_code, out["tat"][priority_code], current_user["username"])
     if b.vip_keywords is not None:
         out["vip_keywords"] = crud_settings.update_vip_keywords(db, b.vip_keywords)
         log_admin_event(db, current_user, "VIP_KEYWORDS_UPDATED", "settings", "vip_keywords", str(out["vip_keywords"]))
@@ -248,6 +254,36 @@ def update_user(user_id: int, b: UserUpdate, db: Session = Depends(get_db), curr
 @router.get("/roles")
 def list_valid_roles(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     return crud_user.get_valid_roles(db)
+
+# ---------- outbound webhooks ----------
+
+def _webhook_config_out(cfg: dict) -> dict:
+    # secret is never echoed back out - only whether one is set.
+    return {"url": cfg.get("url"), "enabled": cfg.get("enabled"), "events": cfg.get("events"),
+            "timeout_seconds": cfg.get("timeout_seconds"), "secret_set": bool(cfg.get("secret")),
+            "available_events": webhook_service.WEBHOOK_EVENTS}
+
+@router.get("/webhooks/config")
+def get_webhook_config(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return _webhook_config_out(webhook_service.get_webhook_config(db))
+
+@router.post("/webhooks/config")
+def update_webhook_config(b: WebhookConfigUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    patch = b.model_dump(exclude_unset=True)
+    if not patch:
+        raise HTTPException(400, "Nothing to update - provide url, secret, enabled, events and/or timeout_seconds")
+    cfg = webhook_service.update_webhook_config(db, patch)
+    log_admin_event(db, current_user, "WEBHOOK_CONFIG_UPDATED", "settings", "webhook",
+                     f"url={cfg.get('url')}, enabled={cfg.get('enabled')}, events={cfg.get('events')}, "
+                     f"secret_set={bool(cfg.get('secret'))}")
+    return _webhook_config_out(cfg)
+
+@router.post("/webhooks/test")
+def test_webhook(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    result = webhook_service.send_test_ping(db)
+    log_admin_event(db, current_user, "WEBHOOK_TEST_PING", "settings", "webhook",
+                     f"ok={result.get('ok')}, status_code={result.get('status_code')}, elapsed_ms={result.get('elapsed_ms')}")
+    return result
 
 # ---------- audit ----------
 

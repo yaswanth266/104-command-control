@@ -9,6 +9,7 @@ from app.crud.crud_team import get_team_map, get_active_team_map
 from app.crud.crud_settings import get_sla_config, get_dispatch_config
 from app.schemas.ticket import ActionIn
 from app.services.notifications import notify_escalated, notify_assigned
+from app.services.webhooks import dispatch_ticket_event
 
 # Centralized workflow contract: the ticket statuses each lifecycle action may
 # be applied from, and the status it lands on. This is the single place that
@@ -48,7 +49,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
     # whichever team the ticket is currently routed to).
     is_originating_lt = role == "LT" and ticket.created_by == user["username"]
 
-    def setf(action_name: str, detail: str, **kwargs):
+    def setf(action_name: str, detail: str, webhook_event: str = None, **kwargs):
         old_status = ticket.status
         # SLA-pausing PENDING: whenever an action moves a ticket OUT of PENDING
         # into any other status, credit back the time it sat waiting (e.g. on
@@ -66,9 +67,16 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         db.commit()
         db.refresh(ticket)
         new_status = ticket.status
+        changed = old_status if old_status != new_status else None
         create_event(db, ticket.id, user, action_name, detail,
-                     old_status=old_status if old_status != new_status else None,
-                     new_status=new_status if old_status != new_status else None)
+                     old_status=changed,
+                     new_status=new_status if changed else None)
+        # Outbound webhook (see app/services/webhooks.py): fire-and-forget,
+        # never blocks or fails this action even if the external receiver is
+        # down - dispatch_webhook_event swallows its own errors.
+        if webhook_event:
+            dispatch_ticket_event(db, webhook_event, ticket, user.get("username", "system"),
+                                   old_status=changed, note=detail)
 
     now = datetime.datetime.now()
 
@@ -77,6 +85,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
             raise HTTPException(403, "Only the assigned team may acknowledge")
         _require_transition(ticket, act)
         setf("ACKNOWLEDGED", f"Acknowledged by {user['name']} ({get_team_map(db).get(ticket.team, ticket.team)})",
+             "ticket.status_changed",
              status=TARGET_STATUS[act], acknowledged_at=now, first_response_at=ticket.first_response_at or now, assignee=user['username'])
 
     elif act == "start":
@@ -84,6 +93,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
             raise HTTPException(403, "Only the assigned team may work this ticket")
         _require_transition(ticket, act)
         setf("IN_PROGRESS", action_in.note or "Investigation started",
+             "ticket.status_changed",
              status=TARGET_STATUS[act], first_response_at=ticket.first_response_at or now, assignee=ticket.assignee or user['username'])
 
     elif act == "update":
@@ -102,6 +112,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         new_status = 'IN_PROGRESS' if ticket.status in ('NEW', 'ASSIGNED', 'ACKNOWLEDGED') else ticket.status
 
         setf("UPDATED", detail,
+             "ticket.note_added",
              diagnosis=action_in.diagnosis or ticket.diagnosis,
              action_taken=action_in.action_taken or ticket.action_taken,
              root_cause=action_in.root_cause or ticket.root_cause,
@@ -115,6 +126,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if not (action_in.pending_reason or "").strip():
             raise HTTPException(400, "SOP: a pending/waiting ticket must record the reason")
         setf("PENDING", f"Waiting: {action_in.pending_reason}",
+             "ticket.status_changed",
              status=TARGET_STATUS[act], pending_reason=action_in.pending_reason,
              pending_since=(ticket.pending_since or now))
 
@@ -125,6 +137,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if not (action_in.resolution or "").strip():
             raise HTTPException(400, "SOP: resolution details are mandatory before resolving")
         setf("RESOLVED", f"Resolution: {action_in.resolution}",
+             "ticket.status_changed",
              status=TARGET_STATUS[act], resolved_at=now, resolution=action_in.resolution,
              diagnosis=action_in.diagnosis or ticket.diagnosis,
              action_taken=action_in.action_taken or ticket.action_taken,
@@ -138,6 +151,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if not (action_in.confirmed_by or "").strip():
             raise HTTPException(400, "SOP: record who at the MMU/field team confirmed the resolution")
         setf("CONFIRMED", f"Resolution confirmed with {action_in.confirmed_by}",
+             "ticket.status_changed",
              status=TARGET_STATUS[act], confirmed_by=action_in.confirmed_by, confirmed_at=now)
 
     elif act == "close":
@@ -148,6 +162,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
             raise HTTPException(400, "SOP: resolution must be documented before closure")
         breached = bool(ticket.due_at and now > ticket.due_at)
         setf("CLOSED", f"Closed by {user['name']}{' (TAT BREACHED)' if breached else ' within TAT'}",
+             "ticket.status_changed",
              status=TARGET_STATUS[act], closed_at=now, breached=breached, resolution=action_in.resolution or ticket.resolution)
 
     elif act == "escalate":
@@ -156,6 +171,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: only an open ticket may be escalated")
         setf("ESCALATED", f"Escalated to Global Team Executive: {action_in.note or 'TAT risk'}",
+             "ticket.escalated",
              escalated=True, escalated_at=now, escalated_to='CC_MANAGER', escalation_note=action_in.note or "TAT risk")
         notify_escalated(db, ticket, action_in.note or "TAT risk")
 
@@ -188,7 +204,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         target = get_user_by_username(db, target_username)
         if not target or target.role != ticket.team:
             raise HTTPException(400, f"'{target_username}' is not an active member of {ticket.team}")
-        setf("ASSIGNED_TO", f"{user['name']} assigned this to {target.name}", assignee=target.username)
+        setf("ASSIGNED_TO", f"{user['name']} assigned this to {target.name}", "ticket.assigned", assignee=target.username)
         notify_assigned(db, ticket, target.username, user['name'])
 
     elif act == "reassign":
@@ -201,6 +217,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         if nt not in active_teams:
             raise HTTPException(400, "Unknown or inactive team")
         setf("REASSIGNED", f"Re-routed to {active_teams[nt]}. {action_in.note or ''}",
+             "ticket.assigned",
              team=nt, owner=active_teams[nt], status='ASSIGNED', assigned_at=now, assignee=None)
 
     elif act == "repriority":
@@ -216,6 +233,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         # PENDING period.
         new_due = ticket.created_at + datetime.timedelta(minutes=nt_mins + (ticket.paused_minutes or 0))
         setf("PRIORITY", f"Priority set to {action_in.priority} (TAT {nt_mins} min)",
+             "ticket.note_added",
              priority=action_in.priority, tat_mins=nt_mins, due_at=new_due)
 
     elif act == "reopen":
@@ -229,6 +247,7 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
             raise HTTPException(409, f"SOP: this ticket closed over {window_hours}h ago and can no longer be "
                                       "reopened - register a new ticket instead so history stays accurate")
         setf("REOPENED", action_in.note,
+             "ticket.status_changed",
              status=TARGET_STATUS[act], closed_at=None, reopened=ticket.reopened + 1)
     else:
         raise HTTPException(400, "Unknown action")

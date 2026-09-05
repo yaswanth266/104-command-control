@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.api.deps import get_current_user
-from app.crud.crud_notification import get_notifications, mark_read
+from app.crud.crud_notification import get_notifications, mark_read, mark_all_read
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
@@ -15,6 +15,11 @@ def list_notifications(unread_only: bool = False, db: Session = Depends(get_db),
          "read_at": n.read_at.strftime("%Y-%m-%d %H:%M") if n.read_at else None}
         for n in rows
     ]}
+
+@router.post("/read-all")
+def read_all_notifications(db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    count = mark_all_read(db, current_user["role"], username=current_user["username"])
+    return {"ok": True, "count": count}
 
 @router.post("/{nid}/read")
 def read_notification(nid: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):

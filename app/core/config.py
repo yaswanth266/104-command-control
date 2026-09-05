@@ -26,6 +26,18 @@ INTAKE_API_KEY = os.environ.get("CCC_INTAKE_KEY")
 # live-editable the way the thresholds themselves do.
 SLA_SWEEP_SECONDS = int(os.environ.get("CCC_SLA_SWEEP_SECONDS", 60))
 
+# Outbound webhook integration (see app/services/webhooks.py): pushes CCC's
+# own ticket lifecycle events - using CCC's own category/priority master data,
+# not whatever terminology the external system sent in on /intake - to an
+# external EHR/vendor system via signed HTTP POST. These env vars are only the
+# fallback target; an admin can instead (or additionally) configure this via
+# PUT /cccapi/admin/webhooks/config, which is DB-backed (ccc_config, key
+# 'webhook') and takes priority once set.
+CCC_OUTBOUND_WEBHOOK_URL = os.environ.get("CCC_OUTBOUND_WEBHOOK_URL")
+CCC_OUTBOUND_WEBHOOK_SECRET = os.environ.get("CCC_OUTBOUND_WEBHOOK_SECRET")
+CCC_OUTBOUND_WEBHOOK_ENABLED = os.environ.get("CCC_OUTBOUND_WEBHOOK_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+CCC_OUTBOUND_WEBHOOK_TIMEOUT_SECONDS = float(os.environ.get("CCC_OUTBOUND_WEBHOOK_TIMEOUT_SECONDS", 5))
+
 # Team/category routing and SLA-tier thresholds are now admin-editable and
 # DB-backed (ccc_team, ccc_category, ccc_config's 'sla' key - see
 # app/crud/crud_team.py, crud_category.py, crud_settings.py) rather than

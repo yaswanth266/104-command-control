@@ -1,9 +1,98 @@
-var API = '/cccapi', TOK = sessionStorage.getItem('ccc_tok') || '', ME = null, META = null, TAB = 'queue', ROWS = [], ROWTOTAL = 0, DASH = null,
-  FILT = { status: 'open', scope: '', priority: '', category: '', mmu_vehicle: '', district: '', date_from: '', date_to: '', q: '', page: 1, page_size: 50, sort_by: '', sort_desc: false },
+var API = '/cccapi', TOK = sessionStorage.getItem('ccc_tok') || localStorage.getItem('ccc_tok') || '', ME = null, META = null, TAB = 'queue', ROWS = [], ROWTOTAL = 0, DASH = null,
+  FILT = { status: '', scope: '', team: '', priority: '', category: '', mmu_vehicle: '', district: '', district_id: '', mandal_id: '', date_preset: '', date_from: '', date_to: '', time_from: '', time_to: '', shift: '', q: '', page: 1, page_size: 50, sort_by: 'created_at', sort_desc: true },
   NOTIFS = [], NOTIF_OPEN = false, POLL_TIMER = null, CLOCK_TIMER = null,
   ADMIN_TAB = 'teams', ADMIN_TEAMS = [], ADMIN_CATEGORIES = [], ADMIN_SLA = null, ADMIN_DISPATCH = null, ADMIN_USERS = [], ADMIN_USERS_Q = '', ADMIN_ROLES = [], ADMIN_AUDIT = [], ADMIN_LOADED = {},
   ADMIN_DISTRICTS = [], ADMIN_ZONES = [], ADMIN_MANDALS = [], ADMIN_VEHICLES = [], ADMIN_REASONS = [], ADMIN_MACHINES = [],
-  LT_CATEGORIES = [], LT_REASONS = [], LT_SELECTED_REASONS = [], LT_MACHINE_RESULTS = [], LT_TICKETS = [];
+  LT_CATEGORIES = [], LT_REASONS = [], LT_SELECTED_REASONS = [], LT_MACHINE_RESULTS = [], LT_TICKETS = [],
+  AUDIO_CTX = null, SOUND_ENABLED = localStorage.getItem('ccc_sound_enabled') !== '0',
+  AUTO_REFRESH_ENABLED = true, AUTO_REFRESH_SECS = 20, REFRESH_COUNTDOWN = 20, LAST_MAX_TICKET_ID = 0, CURRENT_MODAL_TICKET_ID = null;
+
+function getAudioContext() {
+  if (!AUDIO_CTX) {
+    var AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (AudioContext) AUDIO_CTX = new AudioContext();
+  }
+  if (AUDIO_CTX && AUDIO_CTX.state === 'suspended') {
+    AUDIO_CTX.resume();
+  }
+  return AUDIO_CTX;
+}
+
+function playAlertSound(type) {
+  if (!SOUND_ENABLED) return;
+  try {
+    var ctx = getAudioContext();
+    if (!ctx) return;
+    var now = ctx.currentTime;
+    
+    if (type === 'p1' || type === 'critical') {
+      // Emergency P1 Two-Tone Warning: D5 (587Hz) -> A5 (880Hz) -> D6 (1174Hz)
+      var notes = [587.33, 880.00, 1174.66];
+      notes.forEach(function (freq, idx) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.12);
+        gain.gain.setValueAtTime(0.35, now + idx * 0.12);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.12 + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.12);
+        osc.stop(now + idx * 0.12 + 0.35);
+      });
+    } else {
+      // Melodic Standard Notification Chime: C5 (523Hz) -> E5 (659Hz) -> G5 (784Hz)
+      var notes = [523.25, 659.25, 783.99];
+      notes.forEach(function (freq, idx) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, now + idx * 0.1);
+        gain.gain.setValueAtTime(0.25, now + idx * 0.1);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.1 + 0.4);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + idx * 0.1);
+        osc.stop(now + idx * 0.1 + 0.4);
+      });
+    }
+  } catch (e) {
+    console.warn('Audio alert error:', e);
+  }
+}
+
+function toggleSoundAlerts() {
+  SOUND_ENABLED = !SOUND_ENABLED;
+  localStorage.setItem('ccc_sound_enabled', SOUND_ENABLED ? '1' : '0');
+  if (SOUND_ENABLED) {
+    playAlertSound('new');
+    toast('🔊 Audio alerts turned ON');
+  } else {
+    toast('🔕 Audio alerts MUTED');
+  }
+  var btn = document.getElementById('sound_toggle_btn');
+  if (btn) {
+    btn.className = 'sound-toggle-btn ' + (SOUND_ENABLED ? 'on' : 'off');
+    btn.innerHTML = '<span>' + (SOUND_ENABLED ? '🔔 Audio ON' : '🔕 Audio Muted') + '</span>';
+  }
+}
+
+function toggleAutoRefresh() {
+  AUTO_REFRESH_ENABLED = !AUTO_REFRESH_ENABLED;
+  REFRESH_COUNTDOWN = AUTO_REFRESH_SECS;
+  toast(AUTO_REFRESH_ENABLED ? '🟢 Live Queue Auto-Refresh Active' : '⏸️ Auto-Refresh Paused');
+  var btn = document.getElementById('auto_refresh_btn');
+  if (btn) {
+    btn.className = 'auto-refresh-btn ' + (AUTO_REFRESH_ENABLED ? 'active' : 'paused');
+    btn.innerHTML = '<span class="pulse-dot"></span><span id="auto_refresh_label">' + (AUTO_REFRESH_ENABLED ? 'Live' : 'Paused') + '</span>';
+  }
+}
+
+function testAudioAlert() {
+  playAlertSound('p1');
+  toast('🔔 Tested P1 Emergency Audio Chime');
+}
+
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
 function api(m, p, b) {
   var h = { 'Content-Type': 'application/json' }; if (TOK) h.Authorization = 'Bearer ' + TOK;
@@ -13,31 +102,135 @@ function api(m, p, b) {
   });
 }
 function toast(m) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = m; document.body.appendChild(t); setTimeout(function () { t.style.transition = 'all 0.3s ease'; t.style.opacity = '0'; t.style.transform = 'translateX(-50%) translateY(20px)'; setTimeout(function () { t.remove(); }, 300); }, 3000); }
-/* Reusable second-layer modal (stacks above #modal, e.g. an Admin Portal
-   edit while nothing else is open) - replaces window.prompt() with a proper
-   in-app form pre-filled with the record's current values, matching the
-   same .ovl/.sheet/.sh/.sb shell the ticket-detail modal already uses. */
-function openModal2(html) { document.getElementById('modal2').innerHTML = html; }
-function closeModal2() { document.getElementById('modal2').innerHTML = ''; }
-function editModal(title, fieldsHtml, onSave) {
-  openModal2('<div class="ovl" onclick="if(event.target===this)closeModal2()"><div class="sheet" style="max-width:460px">' +
-    '<div class="sh"><div style="font-size:16px;font-weight:800">' + esc(title) + '</div>' +
-    '<button class="x" onclick="closeModal2()" aria-label="Close">&times;</button></div>' +
-    '<div class="sb">' + fieldsHtml +
-    '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px">' +
-    '<button class="btn o sm" onclick="closeModal2()">Cancel</button>' +
-    '<button class="btn sm" id="em_save_btn">Save</button>' +
-    '</div></div></div></div>');
-  document.getElementById('em_save_btn').onclick = onSave;
-  setTimeout(function () { var first = document.querySelector('#modal2 input,#modal2 select'); if (first) first.focus(); }, 50);
-}
 function doLogin() {
   var u = document.getElementById('u').value.trim(), p = document.getElementById('p').value;
   document.getElementById('lerr').textContent = '';
-  api('POST', '/auth', { username: u, password: p }).then(function (d) { TOK = d.token; ME = d.user; sessionStorage.setItem('ccc_tok', TOK); sessionStorage.setItem('ccc_me', JSON.stringify(d.user)); boot(); })
-    .catch(function (e) { document.getElementById('lerr').textContent = (e === 'auth' ? '' : (e || 'Login failed')); });
+  api('POST', '/auth', { username: u, password: p }).then(function (d) {
+    TOK = d.token;
+    ME = d.user;
+    sessionStorage.setItem('ccc_tok', TOK);
+    sessionStorage.setItem('ccc_me', JSON.stringify(d.user));
+    localStorage.setItem('ccc_tok', TOK);
+    localStorage.setItem('ccc_me', JSON.stringify(d.user));
+    saveState();
+    boot();
+  }).catch(function (e) {
+    document.getElementById('lerr').textContent = (e === 'auth' ? '' : (e || 'Login failed'));
+  });
 }
-function logout() { TOK = ''; ME = null; TAB = 'queue'; sessionStorage.clear(); if (POLL_TIMER) clearInterval(POLL_TIMER); if (CLOCK_TIMER) clearInterval(CLOCK_TIMER); var _u = document.getElementById('u'), _p = document.getElementById('p'), _e = document.getElementById('lerr'); if (_u) _u.value = ''; if (_p) _p.value = ''; if (_e) _e.textContent = ''; document.getElementById('app').classList.add('hide'); document.getElementById('login').classList.remove('hide'); }
+function togglePasswordVisibility(inputId, btnId) {
+  var inp = document.getElementById(inputId);
+  var btn = document.getElementById(btnId);
+  if (!inp || !btn) return;
+  var isPw = inp.type === 'password';
+  inp.type = isPw ? 'text' : 'password';
+  var eyeOpen = btn.querySelector('.eye-open');
+  var eyeClosed = btn.querySelector('.eye-closed');
+  if (eyeOpen && eyeClosed) {
+    if (isPw) {
+      eyeOpen.classList.add('hide');
+      eyeClosed.classList.remove('hide');
+    } else {
+      eyeOpen.classList.remove('hide');
+      eyeClosed.classList.add('hide');
+    }
+  }
+}
+
+function toggleForgotView(showForgot) {
+  var loginSec = document.getElementById('login_section');
+  var forgotSec = document.getElementById('forgot_section');
+  var lerr = document.getElementById('lerr');
+  var fmsg = document.getElementById('forgot_msg');
+  if (lerr) lerr.textContent = '';
+  if (fmsg) { fmsg.textContent = ''; fmsg.style.color = ''; }
+  if (showForgot) {
+    if (loginSec) loginSec.classList.add('hide');
+    if (forgotSec) forgotSec.classList.remove('hide');
+    var fu = document.getElementById('forgot_u');
+    if (fu) setTimeout(function () { fu.focus(); }, 50);
+  } else {
+    if (loginSec) loginSec.classList.remove('hide');
+    if (forgotSec) forgotSec.classList.add('hide');
+    var u = document.getElementById('u');
+    if (u) setTimeout(function () { u.focus(); }, 50);
+  }
+}
+
+function doForgotPassword() {
+  var u = (document.getElementById('forgot_u').value || '').trim();
+  var phone = (document.getElementById('forgot_phone').value || '').trim();
+  var np = (document.getElementById('forgot_p').value || '').trim();
+  var cp = (document.getElementById('forgot_cp').value || '').trim();
+  var msg = document.getElementById('forgot_msg');
+  if (msg) { msg.textContent = ''; msg.style.color = 'var(--crit)'; }
+
+  if (!u) {
+    if (msg) msg.textContent = 'Please enter your username';
+    return;
+  }
+  if (!phone) {
+    if (msg) msg.textContent = 'Please enter your registered mobile number';
+    return;
+  }
+  if (!np) {
+    if (msg) msg.textContent = 'Please enter a new password';
+    return;
+  }
+  if (np.length < 8) {
+    if (msg) msg.textContent = 'Password must be at least 8 characters';
+    return;
+  }
+  if (np !== cp) {
+    if (msg) msg.textContent = 'New passwords do not match';
+    return;
+  }
+
+  if (msg) { msg.style.color = 'var(--pur)'; msg.textContent = 'Verifying and resetting password...'; }
+  api('POST', '/auth/forgot-password', { username: u, phone: phone, new_password: np })
+    .then(function (d) {
+      if (msg) {
+        msg.style.color = '#059669';
+        msg.textContent = d.message || 'Password reset successfully! Returning to sign in...';
+      }
+      setTimeout(function () {
+        toggleForgotView(false);
+        var uInp = document.getElementById('u');
+        var pInp = document.getElementById('p');
+        if (uInp) uInp.value = u;
+        if (pInp) { pInp.value = ''; pInp.focus(); }
+        toast('Password reset successfully! Please sign in.');
+      }, 1400);
+    })
+    .catch(function (e) {
+      if (msg) {
+        msg.style.color = 'var(--crit)';
+        msg.textContent = typeof e === 'string' ? e : (e.detail || 'Password reset failed');
+      }
+    });
+}
+
+function logout() {
+  TOK = '';
+  ME = null;
+  TAB = 'queue';
+  sessionStorage.clear();
+  localStorage.removeItem('ccc_tok');
+  localStorage.removeItem('ccc_me');
+  localStorage.removeItem('ccc_tab');
+  localStorage.removeItem('ccc_admin_tab');
+  localStorage.removeItem('ccc_filt');
+  try { if (window.history && window.history.replaceState) window.history.replaceState(null, null, ' '); else window.location.hash = ''; } catch (e) {}
+  if (POLL_TIMER) clearInterval(POLL_TIMER);
+  if (CLOCK_TIMER) clearInterval(CLOCK_TIMER);
+  var _u = document.getElementById('u'), _p = document.getElementById('p'), _e = document.getElementById('lerr');
+  if (_u) _u.value = '';
+  if (_p) _p.value = '';
+  if (_e) _e.textContent = '';
+  toggleForgotView(false);
+  document.getElementById('app').classList.add('hide');
+  document.getElementById('login').classList.remove('hide');
+}
 function roleLabel(r) {
   return ({
     CC_MANAGER: 'Global Team Executive',
@@ -52,35 +245,162 @@ function roleLabel(r) {
     LT: 'Lab Technician'
   })[r] || r;
 }
-function tickClock() {
-  if (TAB === 'queue') {
-    var act = document.activeElement;
-    var isTyping = act && (act.tagName === 'INPUT' || act.tagName === 'TEXTAREA' || act.tagName === 'SELECT');
-    if (!isTyping) updateQueueTableOnly();
-  }
+function saveState() {
+  try {
+    sessionStorage.setItem('ccc_tab', TAB);
+    sessionStorage.setItem('ccc_admin_tab', ADMIN_TAB);
+    sessionStorage.setItem('ccc_filt', JSON.stringify(FILT));
+    localStorage.setItem('ccc_tab', TAB);
+    localStorage.setItem('ccc_admin_tab', ADMIN_TAB);
+    localStorage.setItem('ccc_filt', JSON.stringify(FILT));
+
+    if (CURRENT_MODAL_TICKET_ID) {
+      sessionStorage.setItem('ccc_modal_ticket', CURRENT_MODAL_TICKET_ID);
+      localStorage.setItem('ccc_modal_ticket', CURRENT_MODAL_TICKET_ID);
+    } else {
+      sessionStorage.removeItem('ccc_modal_ticket');
+      localStorage.removeItem('ccc_modal_ticket');
+    }
+
+    // Mirror to URL hash
+    var hash = '#' + TAB;
+    if (TAB === 'admin') {
+      hash += '/' + (ADMIN_TAB || 'teams');
+    } else if (TAB === 'queue') {
+      var params = [];
+      if (FILT.status !== undefined && FILT.status !== null) params.push('status=' + encodeURIComponent(FILT.status));
+      if (FILT.scope) params.push('scope=' + encodeURIComponent(FILT.scope));
+      if (FILT.team) params.push('team=' + encodeURIComponent(FILT.team));
+      if (FILT.district_id) params.push('district_id=' + encodeURIComponent(FILT.district_id));
+      if (FILT.q) params.push('q=' + encodeURIComponent(FILT.q));
+      if (FILT.date_preset) params.push('date_preset=' + encodeURIComponent(FILT.date_preset));
+      if (FILT.date_from) params.push('date_from=' + encodeURIComponent(FILT.date_from));
+      if (FILT.date_to) params.push('date_to=' + encodeURIComponent(FILT.date_to));
+      if (FILT.sort_by) params.push('sort_by=' + encodeURIComponent(FILT.sort_by));
+      if (FILT.sort_desc !== undefined) params.push('sort_desc=' + (FILT.sort_desc ? '1' : '0'));
+      if (FILT.page > 1) params.push('page=' + FILT.page);
+      if (CURRENT_MODAL_TICKET_ID) params.push('ticket=' + CURRENT_MODAL_TICKET_ID);
+      if (params.length) hash += '?' + params.join('&');
+    }
+
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, null, hash);
+    } else {
+      window.location.hash = hash;
+    }
+  } catch (e) {}
 }
-function setFilt(k, v) {
-  TAB = 'queue';
-  FILT[k] = v;
-  if (k === 'status') FILT.scope = '';
-  FILT.page = 1;
-  render();
-  load(true);
+
+function restoreState() {
+  try {
+    // 1. First, always restore from storage as baseline
+    var savedTab = sessionStorage.getItem('ccc_tab') || localStorage.getItem('ccc_tab');
+    if (savedTab) TAB = savedTab;
+    else if (ME && ME.role === 'LT') TAB = 'report';
+    else TAB = 'queue';
+
+    var savedAdminTab = sessionStorage.getItem('ccc_admin_tab') || localStorage.getItem('ccc_admin_tab');
+    if (savedAdminTab) ADMIN_TAB = savedAdminTab;
+
+    var savedFilt = sessionStorage.getItem('ccc_filt') || localStorage.getItem('ccc_filt');
+    if (savedFilt) {
+      try {
+        var f = JSON.parse(savedFilt);
+        for (var k in f) {
+          if (f.hasOwnProperty(k)) FILT[k] = f[k];
+        }
+      } catch (e) {}
+    }
+
+    var savedTicket = sessionStorage.getItem('ccc_modal_ticket') || localStorage.getItem('ccc_modal_ticket');
+    if (savedTicket) CURRENT_MODAL_TICKET_ID = parseInt(savedTicket) || null;
+
+    // 2. Override with URL hash if present
+    var rawHash = (window.location.hash || '').replace(/^#/, '');
+    if (rawHash) {
+      var parts = rawHash.split('?');
+      var path = parts[0];
+      var qs = parts[1] || '';
+
+      if (path.indexOf('admin/') === 0) {
+        TAB = 'admin';
+        ADMIN_TAB = path.split('/')[1] || ADMIN_TAB || 'teams';
+      } else if (path === 'admin') {
+        TAB = 'admin';
+        if (!ADMIN_TAB) ADMIN_TAB = 'teams';
+      } else if (path) {
+        TAB = path;
+      }
+
+      if (qs) {
+        var sp = new URLSearchParams(qs);
+        if (sp.has('status')) FILT.status = sp.get('status');
+        if (sp.has('scope')) FILT.scope = sp.get('scope');
+        if (sp.has('team')) FILT.team = sp.get('team');
+        if (sp.has('district_id')) FILT.district_id = sp.get('district_id');
+        if (sp.has('q')) FILT.q = sp.get('q');
+        if (sp.has('date_preset')) FILT.date_preset = sp.get('date_preset');
+        if (sp.has('date_from')) FILT.date_from = sp.get('date_from');
+        if (sp.has('date_to')) FILT.date_to = sp.get('date_to');
+        if (sp.has('sort_by')) FILT.sort_by = sp.get('sort_by');
+        if (sp.has('sort_desc')) FILT.sort_desc = sp.get('sort_desc') === '1' || sp.get('sort_desc') === 'true';
+        if (sp.has('page')) FILT.page = parseInt(sp.get('page')) || 1;
+        if (sp.has('ticket')) CURRENT_MODAL_TICKET_ID = parseInt(sp.get('ticket')) || null;
+      }
+      // Sanitize stale ghost filters
+      FILT.mmu_vehicle = '';
+      FILT.mandal_id = '';
+      FILT.shift = '';
+      FILT.time_from = '';
+      FILT.time_to = '';
+      if (ME && ME.role !== 'CC_MANAGER' && ME.role !== 'ADMIN' && ME.role !== 'CALL_TAKER') {
+        FILT.district_id = '';
+        FILT.district = '';
+        FILT.team = '';
+      }
+    }
+  } catch (e) {}
 }
+
 function boot() {
-  document.getElementById('login').classList.add('hide'); document.getElementById('app').classList.remove('hide');
-  try { ME = ME || JSON.parse(sessionStorage.getItem('ccc_me')); } catch (e) { }
-  if (ME) {
-    document.getElementById('who').innerHTML = '<b>' + esc(ME.name) + '</b>' + esc(roleLabel(ME.role));
-    if (ME.role === 'LT') TAB = 'report';
-  }
-  api('GET', '/meta').then(function (m) { META = m; render(); load(); loadNotifs(); startPolling(); });
+  document.getElementById('login').classList.add('hide');
+  document.getElementById('app').classList.remove('hide');
+  try {
+    ME = ME || JSON.parse(sessionStorage.getItem('ccc_me')) || JSON.parse(localStorage.getItem('ccc_me'));
+  } catch (e) { ME = null; }
+  if (!ME || !TOK) { logout(); return; }
+  document.getElementById('who').innerHTML = '<b>' + esc(ME.name) + '</b>' + esc(roleLabel(ME.role));
+  restoreState();
+  api('GET', '/meta').then(function (m) {
+    META = m;
+    render();
+    if (TAB === 'queue') load(true);
+    else if (TAB === 'dash') load(true);
+    else if (TAB === 'mine') load(true);
+    else if (TAB === 'admin') loadAdminSection(ADMIN_TAB);
+    if (CURRENT_MODAL_TICKET_ID) openT(CURRENT_MODAL_TICKET_ID);
+    loadNotifs();
+    startPolling();
+  }).catch(function (e) {
+    if (e === 'auth') logout();
+  });
 }
 function startPolling() {
   if (POLL_TIMER) clearInterval(POLL_TIMER);
   if (CLOCK_TIMER) clearInterval(CLOCK_TIMER);
-  POLL_TIMER = setInterval(function () { load(); loadNotifs(); }, 18000);
-  CLOCK_TIMER = setInterval(tickClock, 30000);
+  
+  REFRESH_COUNTDOWN = AUTO_REFRESH_SECS;
+  CLOCK_TIMER = setInterval(function () {
+    if (!AUTO_REFRESH_ENABLED || !TOK) return;
+    REFRESH_COUNTDOWN--;
+    if (REFRESH_COUNTDOWN <= 0) {
+      REFRESH_COUNTDOWN = AUTO_REFRESH_SECS;
+      if (TAB === 'queue') load(false);
+      else if (TAB === 'dash') load(false);
+      else if (TAB === 'mine') loadLTMine();
+      loadNotifs();
+    }
+  }, 1000);
 }
 var NAV_EXPANDED = { queue: true, admin: true };
 
@@ -91,25 +411,43 @@ function toggleNavGroup(k) {
 
 function toggleSidebar() {
   var sb = document.getElementById('sidebar');
-  if (sb) sb.classList.toggle('show');
+  if (sb) {
+    var willShow = !sb.classList.contains('show');
+    sb.classList.toggle('show', willShow);
+    var bd = document.getElementById('sidebar_backdrop');
+    if (bd) bd.classList.toggle('show', willShow);
+  }
+}
+
+function closeSidebar() {
+  var sb = document.getElementById('sidebar');
+  if (sb && sb.classList.contains('show')) {
+    sb.classList.remove('show');
+    var bd = document.getElementById('sidebar_backdrop');
+    if (bd) bd.classList.remove('show');
+  }
 }
 
 function setQueueStatus(st) {
+  closeSidebar();
   TAB = 'queue';
   FILT.status = st;
   FILT.scope = '';
   FILT.page = 1;
   NAV_EXPANDED.queue = true;
+  saveState();
   render();
   load(true);
 }
 
 function setQueueScope(sc) {
+  closeSidebar();
   TAB = 'queue';
   FILT.status = 'open';
   FILT.scope = sc;
   FILT.page = 1;
   NAV_EXPANDED.queue = true;
+  saveState();
   render();
   load(true);
 }
@@ -126,8 +464,8 @@ function renderNavTree() {
     var isStatus = function(st) { return isQueue && !FILT.scope && FILT.status === st; };
 
     var qSubFilters = [
+      { label: 'All Tickets', icon: '📋', active: isStatus(''), onclick: "setQueueStatus('')" },
       { label: 'Open', icon: '🟢', active: isStatus('open'), onclick: "setQueueStatus('open')" },
-      { label: 'All', icon: '⚪', active: isStatus(''), onclick: "setQueueStatus('')" },
       { label: 'Closed', icon: '🟣', active: isStatus('CLOSED'), onclick: "setQueueStatus('CLOSED')" },
       { label: 'TAT Breached', icon: '🚨', active: isScope('breach'), onclick: "setQueueScope('breach')" },
       { label: 'At Risk', icon: '⚠️', active: isScope('risk'), onclick: "setQueueScope('risk')" },
@@ -176,11 +514,11 @@ function renderNavTree() {
   }
 
   // 4. Daily Monitoring (Parent item)
-  if (ME.role === 'CC_MANAGER') {
+  if (ME.role === 'CC_MANAGER' || ME.is_team_manager) {
     var isDash = (TAB === 'dash');
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (isDash ? 'active-branch' : '') + '" onclick="go(\'dash\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">📊</span><span class="nav-parent-title">Daily Monitoring</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">📊</span><span class="nav-parent-title">' + (ME.role === 'CC_MANAGER' ? 'Daily Monitoring' : 'Team Monitoring') + '</span></div>' +
       '</div>' +
     '</div>';
   }
@@ -229,9 +567,11 @@ function renderNavTree() {
 }
 
 function goAdminItem(subTab) {
+  closeSidebar();
   TAB = 'admin';
   ADMIN_TAB = subTab;
   NAV_EXPANDED.admin = true;
+  saveState();
   render();
   loadAdminSection(subTab);
 }
@@ -250,19 +590,62 @@ function render() {
   else if (TAB === 'admin') b.innerHTML = viewAdmin();
   else b.innerHTML = viewQueue();
 }
-function go(t) { TAB = t; render(); load(); if (t === 'admin') loadAdminSection(ADMIN_TAB); }
+function go(t) {
+  closeSidebar();
+  TAB = t;
+  if (t === 'dash') DASH = null;
+  if (t === 'admin' && !ADMIN_TAB) ADMIN_TAB = 'teams';
+  saveState();
+  render();
+  if (t === 'queue' || t === 'dash' || t === 'mine') load(true);
+  if (t === 'admin') loadAdminSection(ADMIN_TAB);
+}
 function queueQS() {
-  var keys = ['status', 'scope', 'priority', 'category', 'mmu_vehicle', 'district', 'date_from', 'date_to', 'page', 'page_size', 'sort_by', 'sort_desc'];
-  return keys.map(function (k) { return k + '=' + encodeURIComponent(FILT[k] || (k === 'sort_desc' ? false : '')); }).join('&') + '&q_=' + encodeURIComponent(FILT.q || '');
+  var params = [];
+  var keys = ['status', 'scope', 'team', 'priority', 'category', 'mmu_vehicle', 'district', 'district_id', 'mandal_id', 'date_from', 'date_to', 'time_from', 'time_to', 'shift', 'page', 'page_size', 'sort_by', 'sort_desc'];
+  keys.forEach(function (k) {
+    var v = FILT[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') {
+      params.push(k + '=' + encodeURIComponent(v));
+    }
+  });
+  if (FILT.q) params.push('q_=' + encodeURIComponent(FILT.q));
+  return params.join('&');
 }
 function load(forced) {
   if (ME.role === 'LT') { if (TAB === 'mine') loadLTMine(); return; }
   if (TAB === 'queue') {
     api('GET', '/tickets?' + queueQS()).then(function (d) {
       ROWS = d.rows || []; ROWTOTAL = d.total || 0;
-      var act = document.activeElement;
-      var isTyping = act && (act.tagName === 'INPUT' || act.tagName === 'TEXTAREA' || act.tagName === 'SELECT');
-      if (forced || !isTyping) {
+
+      // Sound alert and new ticket detection
+      if (ROWS.length > 0) {
+        var maxId = 0;
+        var incomingP1 = false;
+        var incomingNew = 0;
+
+        ROWS.forEach(function (t) {
+          if (t.id > maxId) maxId = t.id;
+          if (LAST_MAX_TICKET_ID > 0 && t.id > LAST_MAX_TICKET_ID) {
+            incomingNew++;
+          }
+        });
+
+        if (incomingNew > 0) {
+          playAlertSound('p1');
+          var topT = ROWS[0] || {};
+          var msg = incomingNew === 1 ?
+            ('🚨 New Breakdown Alert: Ticket ' + esc(topT.ticket_no) + (topT.mmu_vehicle ? (' · MMU ' + esc(topT.mmu_vehicle)) : '')) :
+            ('🚨 ' + incomingNew + ' new breakdown tickets received!');
+          toast(msg);
+        }
+
+        if (maxId > LAST_MAX_TICKET_ID) {
+          LAST_MAX_TICKET_ID = maxId;
+        }
+      }
+
+      if (forced) {
         render();
       } else {
         updateQueueTableOnly();
@@ -271,8 +654,32 @@ function load(forced) {
   }
   if (TAB === 'dash') { api('GET', '/dashboard').then(function (d) { DASH = d; render(); }); }
 }
-function setFilt(k, v) { FILT[k] = v; FILT.page = 1; load(true); }
-function gotoPage(p) { if (p < 1) return; FILT.page = p; load(true); }
+function setFilt(k, v) {
+  TAB = 'queue';
+  FILT[k] = v;
+  FILT.page = 1;
+  saveState();
+  render();
+  load(true);
+}
+function viewVehicleTickets(veh) {
+  TAB = 'queue';
+  FILT.status = '';
+  FILT.scope = '';
+  FILT.mmu_vehicle = veh;
+  FILT.district = '';
+  FILT.q = '';
+  FILT.priority = '';
+  FILT.category = '';
+  FILT.date_from = '';
+  FILT.date_to = '';
+  FILT.page_size = 100;
+  FILT.page = 1;
+  saveState();
+  render();
+  load(true);
+}
+function gotoPage(p) { if (p < 1) return; FILT.page = p; saveState(); load(true); }
 
 /* ---------- queue ---------- */
 function parseDT(s) { if (!s) return null; var p = s.split(/[- :]/); return new Date(+p[0], +p[1] - 1, +p[2], +p[3] || 0, +p[4] || 0, 0); }
@@ -288,10 +695,7 @@ function computeTier(dueAt, tatMins) {
 function tickClock() {
   if (TAB !== 'queue' || !ROWS.length) return;
   ROWS.forEach(function (t) { if (t.status === 'CLOSED') return; var r = computeTier(t.due_at, t.tat_mins); if (r) { t.tat_state = r.state; t.mins_left = Math.round(r.mins); } });
-  var act = document.activeElement;
-  var isTyping = act && (act.tagName === 'INPUT' || act.tagName === 'TEXTAREA' || act.tagName === 'SELECT');
-  if (!isTyping) render();
-  else updateQueueTableOnly();
+  updateQueueTableOnly();
 }
 function tatPill(t) {
   var s = t.tat_state; var k = s === 'BREACHED' ? 'p-crit' : (s === 'CRITICAL' ? 'p-critical' : (s === 'AT RISK' ? 'p-warn' : (s === 'MET' || s === 'ON TRACK' ? 'p-ok' : 'p-mut')));
@@ -299,11 +703,123 @@ function tatPill(t) {
   return '<span class="pill ' + k + '">' + esc(s) + extra + '</span>';
 }
 function gv(i) { var e = document.getElementById(i); return e ? e.value.trim() : ''; }
-function applyFilters() {
-  FILT.mmu_vehicle = gv('qf_veh'); FILT.district = gv('qf_dist'); FILT.q = gv('qf_q');
-  FILT.priority = gv('qf_pri'); FILT.category = gv('qf_cat'); FILT.date_from = gv('qf_from'); FILT.date_to = gv('qf_to'); FILT.page = 1; load(true);
+
+function onTimePresetChange(preset) {
+  var customWrap = document.getElementById('qf_custom_dates');
+  if (preset === 'custom') {
+    FILT.date_preset = 'custom';
+    if (customWrap) customWrap.style.display = 'flex';
+    return;
+  }
+  if (customWrap) customWrap.style.display = 'none';
+  applyFilters();
 }
-function clearFilters() { FILT.mmu_vehicle = ''; FILT.district = ''; FILT.q = ''; FILT.priority = ''; FILT.category = ''; FILT.date_from = ''; FILT.date_to = ''; FILT.page = 1; load(true); render(); }
+
+function setDatePreset(preset) {
+  FILT.date_preset = preset;
+  applyFilters();
+}
+
+function applyFilters() {
+  FILT.q = gv('qf_q');
+
+  var stEl = document.getElementById('qf_status');
+  if (stEl) FILT.status = stEl.value;
+  
+  var deptEl = document.getElementById('qf_dept');
+  FILT.team = deptEl ? deptEl.value : '';
+
+  var distEl = document.getElementById('qf_dist');
+  FILT.district_id = distEl ? distEl.value : '';
+  FILT.district = '';
+  if (FILT.district_id && META && META.districts) {
+    var dObj = META.districts.find(function (d) { return String(d.id) === String(FILT.district_id); });
+    if (dObj) FILT.district = dObj.name;
+  }
+
+  // Clear obsolete filters to prevent ghost filtering
+  FILT.category = '';
+  FILT.mmu_vehicle = '';
+  FILT.mandal_id = '';
+  FILT.time_from = '';
+  FILT.time_to = '';
+  FILT.shift = '';
+
+  var timeSel = gv('qf_time');
+  FILT.date_preset = timeSel;
+  var now = new Date();
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  var fmtDate = function (d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+
+  if (timeSel === 'today') {
+    var today = fmtDate(now);
+    FILT.date_from = today;
+    FILT.date_to = today;
+  } else if (timeSel === 'yesterday') {
+    var y = new Date();
+    y.setDate(y.getDate() - 1);
+    var yDate = fmtDate(y);
+    FILT.date_from = yDate;
+    FILT.date_to = yDate;
+  } else if (timeSel === '24h') {
+    var yesterday = new Date(now.getTime() - 24 * 3600 * 1000);
+    FILT.date_from = fmtDate(yesterday);
+    FILT.date_to = fmtDate(now);
+  } else if (timeSel === '7d') {
+    var last7 = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    FILT.date_from = fmtDate(last7);
+    FILT.date_to = fmtDate(now);
+  } else if (timeSel === '30d') {
+    var last30 = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+    FILT.date_from = fmtDate(last30);
+    FILT.date_to = fmtDate(now);
+  } else if (timeSel === 'custom') {
+    FILT.date_from = gv('qf_from');
+    FILT.date_to = gv('qf_to');
+  } else {
+    FILT.date_from = '';
+    FILT.date_to = '';
+  }
+
+  var sortVal = gv('qf_sort');
+  if (sortVal) {
+    var parts = sortVal.split('_');
+    FILT.sort_desc = parts.pop() === 'desc';
+    FILT.sort_by = parts.join('_');
+  }
+  FILT.page = 1;
+  saveState();
+  load(true);
+}
+
+function clearFilters() {
+  FILT.status = '';
+  FILT.scope = '';
+  FILT.team = '';
+  FILT.category = '';
+  FILT.district = '';
+  FILT.district_id = '';
+  FILT.mandal_id = '';
+  FILT.mmu_vehicle = '';
+  FILT.q = '';
+  FILT.date_preset = '';
+  FILT.date_from = '';
+  FILT.date_to = '';
+  FILT.time_from = '';
+  FILT.time_to = '';
+  FILT.shift = '';
+  FILT.sort_by = 'created_at';
+  FILT.sort_desc = true;
+  FILT.page = 1;
+  try {
+    sessionStorage.removeItem('ccc_filt');
+    localStorage.removeItem('ccc_filt');
+  } catch (e) {}
+  saveState();
+  render();
+  load(true);
+}
+
 function downloadExcel(path, filename) {
   var h = { 'Accept': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' };
   if (TOK) h.Authorization = 'Bearer ' + TOK;
@@ -325,22 +841,37 @@ function exportQueue() {
 }
 function updateQueueTableOnly() {
   var tb = document.querySelector('#queue_table_wrap tbody');
-  if (!tb) return;
-  if (!ROWS.length) {
-    tb.innerHTML = '<tr><td colspan="8" class="empty">No tickets in this view.</td></tr>';
+  if (!tb) {
+    render();
     return;
   }
-  tb.innerHTML = ROWS.map(function (t) {
-    return '<tr class="row" onclick="openT(' + t.id + ')">' +
-      '<td><b>' + esc(t.ticket_no) + '</b><div class="muted">' + esc(t.source) + '</div></td>' +
-      '<td>' + esc(t.mmu_vehicle || '—') + '<div class="muted">' + esc(t.district || '') + '</div></td>' +
-      '<td>' + esc(t.category_label || '') + '</td>' +
-      '<td><span class="pill p-' + esc(t.priority) + '">' + esc(t.priority) + '</span>' + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '</td>' +
-      '<td>' + esc(t.team_label || '') + '</td>' +
-      '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
-      '<td>' + tatPill(t) + '<div class="muted">' + esc(t.due_at || '') + '</div></td>' +
-      '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 90)) + '</td></tr>';
-  }).join('');
+  if (!ROWS.length) {
+    var hasActiveFilters = FILT.q || FILT.team || FILT.district_id || FILT.date_from || FILT.date_to || FILT.date_preset;
+    var emptyMsg = hasActiveFilters ?
+      '<div style="padding:36px 20px;text-align:center">' +
+        '<div style="font-size:26px;margin-bottom:8px">🔍</div>' +
+        '<div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px">No tickets found matching the selected filters</div>' +
+        '<div style="font-size:13px;color:var(--ink2);margin-bottom:14px">Try selecting "All Time" or resetting filters to view all active tickets.</div>' +
+        '<button class="btn sm" onclick="clearFilters()" style="padding:6px 18px">Clear All Filters</button>' +
+      '</div>' :
+      '<div class="empty" style="padding:30px">No tickets currently in this view.</div>';
+    tb.innerHTML = '<tr><td colspan="8">' + emptyMsg + '</td></tr>';
+  } else {
+    tb.innerHTML = ROWS.map(function (t) {
+      var createdTime = t.created_at ? esc(t.created_at.replace('T', ' ').slice(0, 16)) : '—';
+      return '<tr class="row" onclick="openT(' + t.id + ')">' +
+        '<td><b>' + esc(t.ticket_no) + '</b>' + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '<div class="muted">' + esc(t.source) + '</div></td>' +
+        '<td>' + esc(t.mmu_vehicle || '—') + (t.is_chronic_fault ? (' <span class="pill-chronic" title="' + t.chronic_breakdown_count + ' breakdowns in 30 days">⚠️ ' + t.chronic_breakdown_count + 'x in 30d</span>') : '') + '<div class="muted">' + esc(t.district || '') + (t.mandal ? (' · ' + esc(t.mandal)) : '') + '</div></td>' +
+        '<td>' + esc(t.category_label || '') + '</td>' +
+        '<td>' + esc(t.team_label || '') + '</td>' +
+        '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
+        '<td><div style="font-weight:600;font-size:12.5px;color:var(--ink)">' + createdTime + '</div><div class="muted" style="font-size:11px">Recorded</div></td>' +
+        '<td>' + tatPill(t) + '<div class="muted">' + esc(t.due_at || '') + '</div></td>' +
+        '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 110)) + '</td></tr>';
+    }).join('');
+  }
+  var qb = document.getElementById('queue_total_badge');
+  if (qb) qb.textContent = ROWTOTAL + ' ticket' + (ROWTOTAL === 1 ? '' : 's');
 }
 function sortQueue(col) {
   if (FILT.sort_by === col) {
@@ -353,8 +884,9 @@ function sortQueue(col) {
   load(true);
 }
 function viewQueue() {
-  var filterTitle = 'All Tickets';
-  if (FILT.scope === 'breach') filterTitle = 'TAT Breached Tickets';
+  var filterTitle = 'All Tickets · Time & Ticket # Basis';
+  if (FILT.mmu_vehicle) filterTitle = 'Breakdown Records · MMU ' + FILT.mmu_vehicle;
+  else if (FILT.scope === 'breach') filterTitle = 'TAT Breached Tickets';
   else if (FILT.scope === 'risk') filterTitle = 'At Risk Tickets';
   else if (FILT.scope === 'critical') filterTitle = 'Critical Priority Tickets';
   else if (FILT.scope === 'escalated') filterTitle = 'Escalated Tickets';
@@ -362,55 +894,136 @@ function viewQueue() {
   else if (FILT.status === 'open') filterTitle = 'Open Tickets';
   else if (FILT.status === 'CLOSED') filterTitle = 'Closed Tickets';
 
-  var cats = (META && META.routing) ? '<option value="">Any category</option>' + Object.keys(META.routing).map(function (k) { return '<option value="' + k + '"' + (FILT.category === k ? ' selected' : '') + '>' + esc(META.routing[k].label) + '</option>'; }).join('') : '';
-  var pris = (META && META.priority) ? '<option value="">Any priority</option>' + Object.keys(META.priority).map(function (k) { return '<option value="' + k + '"' + (FILT.priority === k ? ' selected' : '') + '>' + k + '</option>'; }).join('') : '';
-  
-  var bar = '<div class="card" style="margin-bottom:14px">' +
-    '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">' +
-      '<div>' +
-        '<div style="font-size:16px;font-weight:800;color:var(--ink)">📋 ' + esc(filterTitle) + '</div>' +
-        '<div style="font-size:12.5px;color:var(--ink2);margin-top:2px">Filter and search tickets by MMU, district, category, and date</div>' +
+  var vehicleNotice = '';
+  if (FILT.mmu_vehicle) {
+    vehicleNotice = '<div style="background:#FAF5FF;border:1px solid #D8B4FE;border-radius:8px;padding:8px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;font-size:13px">' +
+      '<span>🚐 Filtered by MMU Vehicle: <b>' + esc(FILT.mmu_vehicle) + '</b></span>' +
+      '<button class="btn sm o" onclick="FILT.mmu_vehicle=\'\';saveState();load(true);render();">Clear Filter</button>' +
+    '</div>';
+  }
+
+  var isCCManagerOrAdmin = ME && (ME.role === 'CC_MANAGER' || ME.role === 'ADMIN' || ME.role === 'CALL_TAKER');
+
+  var statusSelectHtml = [
+    { id: '', label: 'All Statuses' },
+    { id: 'open', label: 'Open / Active' },
+    { id: 'CLOSED', label: 'Closed' }
+  ].map(function (s) {
+    return '<option value="' + s.id + '"' + ((FILT.status || '') === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>';
+  }).join('');
+
+  var distOptions = '<option value="">All Locations (Statewide)</option>';
+  if (META && META.districts) {
+    distOptions += META.districts.map(function (d) {
+      return '<option value="' + d.id + '"' + (String(FILT.district_id) === String(d.id) ? ' selected' : '') + '>' + esc(d.name) + '</option>';
+    }).join('');
+  }
+
+  var deptOptions = '<option value="">All Departments</option>' +
+    [
+      { id: 'SERVICE', label: 'Service Team (Machines)' },
+      { id: 'CDA', label: 'CDA Specialists (Diagnostics)' },
+      { id: 'FLEET', label: 'Fleet Operations (MMU Vehicles)' },
+      { id: 'APPLICATION', label: 'Application Support (Software)' },
+      { id: 'NETWORK', label: 'Network & LIS (Connectivity)' },
+      { id: 'QUALITY', label: 'Quality Team (Lab QC)' },
+      { id: 'TECHNICAL', label: 'Technical Team (Hardware)' }
+    ].map(function (d) {
+      return '<option value="' + d.id + '"' + (FILT.team === d.id ? ' selected' : '') + '>' + esc(d.label) + '</option>';
+    }).join('');
+
+  var timePresets = [
+    { id: '', label: 'All Time' },
+    { id: 'today', label: 'Today' },
+    { id: 'yesterday', label: 'Yesterday' },
+    { id: '24h', label: 'Last 24 Hours' },
+    { id: '7d', label: 'Last 7 Days' },
+    { id: '30d', label: 'This Month' },
+    { id: 'custom', label: 'Custom Date Range...' }
+  ];
+  var timeSelectHtml = timePresets.map(function (p) {
+    return '<option value="' + p.id + '"' + (FILT.date_preset === p.id ? ' selected' : '') + '>' + esc(p.label) + '</option>';
+  }).join('');
+
+  var curSortKey = (FILT.sort_by || 'created_at') + '_' + (FILT.sort_desc ? 'desc' : 'asc');
+  var sortSelectHtml = [
+    { id: 'created_at_desc', label: 'Time Basis (Newest First)' },
+    { id: 'created_at_asc', label: 'Time Basis (Oldest First)' },
+    { id: 'ticket_no_desc', label: 'Ticket # (High to Low)' },
+    { id: 'ticket_no_asc', label: 'Ticket # (Low to High)' },
+    { id: 'due_at_asc', label: 'SLA Urgent First' },
+    { id: 'due_at_desc', label: 'SLA Least Urgent' }
+  ].map(function (s) {
+    return '<option value="' + s.id + '"' + (curSortKey === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>';
+  }).join('');
+
+  var bar = vehicleNotice + '<div class="card" style="margin-bottom:14px;padding:16px 20px;border-radius:12px;background:#fff;border:1px solid #E5E7EB;box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #F3F4F6">' +
+      '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">📋 ' + esc(filterTitle) + '</div>' +
+      '<div id="queue_total_badge" style="font-size:12px;font-weight:700;background:#EDE9FE;color:#6D28D9;padding:4px 12px;border-radius:20px">' +
+        ROWTOTAL + ' ticket' + (ROWTOTAL === 1 ? '' : 's') +
       '</div>' +
-      '<div style="display:flex;gap:8px;align-items:center;">' +
-        '<div style="font-size:13px;font-weight:700;background:rgba(99,32,238,0.08);color:var(--pur);padding:5px 12px;border-radius:20px">' +
-          ROWTOTAL + ' ticket' + (ROWTOTAL === 1 ? '' : 's') +
+    '</div>' +
+    '<div class="qf-grid">' +
+      '<div class="qf-fld" style="flex:1.2;min-width:170px"><label class="qf-label">Search</label><input id="qf_q" class="qf-input" value="' + esc(FILT.q) + '" placeholder="Ticket #, vehicle, problem..." onkeydown="if(event.key===\'Enter\')applyFilters()"></div>' +
+      '<div class="qf-fld" style="flex:0.9;min-width:130px"><label class="qf-label">Status</label><select id="qf_status" class="qf-select" onchange="applyFilters()">' + statusSelectHtml + '</select></div>' +
+      (isCCManagerOrAdmin ? ('<div class="qf-fld" style="flex:1.1;min-width:150px"><label class="qf-label">Location</label><select id="qf_dist" class="qf-select" onchange="applyFilters()">' + distOptions + '</select></div>') : '') +
+      (isCCManagerOrAdmin ? ('<div class="qf-fld" style="flex:1.1;min-width:150px"><label class="qf-label">Department</label><select id="qf_dept" class="qf-select" onchange="applyFilters()">' + deptOptions + '</select></div>') : '') +
+      '<div class="qf-fld" style="flex:1;min-width:130px"><label class="qf-label">Date Filter</label><select id="qf_time" class="qf-select" onchange="onTimePresetChange(this.value)">' + timeSelectHtml + '</select></div>' +
+      '<div class="qf-fld" style="flex:1.1;min-width:150px"><label class="qf-label">Sort Order</label><select id="qf_sort" class="qf-select" onchange="applyFilters()">' + sortSelectHtml + '</select></div>' +
+      '<div class="qf-fld" style="flex:0 0 auto"><label class="qf-label" style="visibility:hidden">Actions</label>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<button class="qf-btn qf-btn-primary" onclick="applyFilters()">Filter</button>' +
+          '<button class="qf-btn qf-btn-outline" onclick="clearFilters()" title="Reset All Filters">Reset</button>' +
+          '<button class="qf-btn qf-btn-export" onclick="exportQueue()" title="Export Tickets to Excel">Export</button>' +
         '</div>' +
       '</div>' +
     '</div>' +
-    '<div class="grid3">' +
-      '<div class="fld"><label>Vehicle</label><input id="qf_veh" value="' + esc(FILT.mmu_vehicle) + '" placeholder="e.g. AP39..." onkeydown="if(event.key===\'Enter\')applyFilters()"></div>' +
-      '<div class="fld"><label>District</label><input id="qf_dist" value="' + esc(FILT.district) + '" placeholder="District name" onkeydown="if(event.key===\'Enter\')applyFilters()"></div>' +
-      '<div class="fld"><label>Keyword</label><input id="qf_q" value="' + esc(FILT.q) + '" placeholder="ticket / problem text" onkeydown="if(event.key===\'Enter\')applyFilters()"></div>' +
-      '<div class="fld"><label>Priority</label><select id="qf_pri">' + pris + '</select></div>' +
-      '<div class="fld"><label>Category</label><select id="qf_cat">' + cats + '</select></div>' +
-      '<div class="fld"><label>Created from</label><input id="qf_from" type="date" value="' + esc(FILT.date_from) + '"></div>' +
-      '<div class="fld"><label>Created to</label><input id="qf_to" type="date" value="' + esc(FILT.date_to) + '"></div>' +
-      '<div class="fld" style="display:flex;align-items:flex-end;gap:8px"><button class="btn sm" onclick="applyFilters()">Apply Filters</button><button class="btn o sm" onclick="clearFilters()">Reset</button>' +
-      '<button class="btn g sm" onclick="exportQueue()">Export to Excel</button></div>' +
+    '<div id="qf_custom_dates" style="display:' + (FILT.date_preset === 'custom' || (FILT.date_from && !FILT.date_preset) ? 'flex' : 'none') + ';gap:12px;margin-top:12px;align-items:flex-end;flex-wrap:wrap;padding-top:12px;border-top:1px dashed #E5E7EB">' +
+      '<div class="qf-fld" style="flex:1;min-width:150px"><label class="qf-label">Date From</label><input id="qf_from" class="qf-input" type="date" value="' + esc(FILT.date_from) + '"></div>' +
+      '<div class="qf-fld" style="flex:1;min-width:150px"><label class="qf-label">Date To</label><input id="qf_to" class="qf-input" type="date" value="' + esc(FILT.date_to) + '"></div>' +
+      '<button class="qf-btn qf-btn-primary" onclick="applyFilters()" style="height:38px">Apply Range</button>' +
     '</div>' +
   '</div>';
-  if (!ROWS.length) return bar + '<div class="card" id="queue_table_wrap"><div class="empty">No tickets matching this view.</div></div>';
-  var rows = ROWS.map(function (t) {
-    return '<tr class="row" onclick="openT(' + t.id + ')">' +
-      '<td><b>' + esc(t.ticket_no) + '</b><div class="muted">' + esc(t.source) + '</div></td>' +
-      '<td>' + esc(t.mmu_vehicle || '—') + '<div class="muted">' + esc(t.district || '') + '</div></td>' +
-      '<td>' + esc(t.category_label || '') + '</td>' +
-      '<td><span class="pill p-' + esc(t.priority) + '">' + esc(t.priority) + '</span>' + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '</td>' +
-      '<td>' + esc(t.team_label || '') + '</td>' +
-      '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
-      '<td>' + tatPill(t) + '<div class="muted">' + esc(t.due_at || '') + '</div></td>' +
-      '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 90)) + '</td></tr>';
-  }).join('');
+
+  var rows = '';
+  if (!ROWS.length) {
+    var hasActiveFilters = FILT.q || FILT.team || FILT.district_id || FILT.date_from || FILT.date_to || FILT.date_preset;
+    var emptyMsg = hasActiveFilters ?
+      '<div style="padding:40px 20px;text-align:center">' +
+        '<div style="font-size:28px;margin-bottom:8px">🔍</div>' +
+        '<div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px">No tickets found matching the selected filters</div>' +
+        '<div style="font-size:13px;color:var(--ink2);margin-bottom:14px">Try selecting "All Time" or resetting filters to view all active tickets.</div>' +
+        '<button class="btn sm" onclick="clearFilters()" style="padding:6px 18px">Clear All Filters</button>' +
+      '</div>' :
+      '<div class="empty" style="padding:30px">No tickets currently in this view.</div>';
+    rows = '<tr><td colspan="8">' + emptyMsg + '</td></tr>';
+  } else {
+    rows = ROWS.map(function (t) {
+      var createdTime = t.created_at ? esc(t.created_at.replace('T', ' ').slice(0, 16)) : '—';
+      return '<tr class="row" onclick="openT(' + t.id + ')">' +
+        '<td><b>' + esc(t.ticket_no) + '</b>' + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '<div class="muted">' + esc(t.source) + '</div></td>' +
+        '<td>' + esc(t.mmu_vehicle || '—') + (t.is_chronic_fault ? (' <span class="pill-chronic" title="' + t.chronic_breakdown_count + ' breakdowns in 30 days">⚠️ ' + t.chronic_breakdown_count + 'x in 30d</span>') : '') + '<div class="muted">' + esc(t.district || '') + (t.mandal ? (' · ' + esc(t.mandal)) : '') + '</div></td>' +
+        '<td>' + esc(t.category_label || '') + '</td>' +
+        '<td>' + esc(t.team_label || '') + '</td>' +
+        '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
+        '<td><div style="font-weight:600;font-size:12.5px;color:var(--ink)">' + createdTime + '</div><div class="muted" style="font-size:11px">Recorded</div></td>' +
+        '<td>' + tatPill(t) + '<div class="muted">' + esc(t.due_at || '') + '</div></td>' +
+        '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 110)) + '</td></tr>';
+    }).join('');
+  }
   var pages = Math.max(1, Math.ceil(ROWTOTAL / FILT.page_size));
   var pager = '<div class="pager"><span>' + ROWTOTAL + ' ticket' + (ROWTOTAL === 1 ? '' : 's') + ' &middot; page ' + FILT.page + ' of ' + pages + '</span>' +
     '<button class="btn o sm" ' + (FILT.page <= 1 ? 'disabled' : '') + ' onclick="gotoPage(' + (FILT.page - 1) + ')">&larr; Prev</button>' +
     '<button class="btn o sm" ' + (FILT.page >= pages ? 'disabled' : '') + ' onclick="gotoPage(' + (FILT.page + 1) + ')">Next &rarr;</button></div>';
-  
+
   var th_t = '<th onclick="sortQueue(\'ticket_no\')" style="cursor:pointer;user-select:none">Ticket ' + (FILT.sort_by === 'ticket_no' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
-  var th_p = '<th onclick="sortQueue(\'priority\')" style="cursor:pointer;user-select:none">Pri ' + (FILT.sort_by === 'priority' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
-  var th_d = '<th onclick="sortQueue(\'due_at\')" style="cursor:pointer;user-select:none">TAT ' + (FILT.sort_by === 'due_at' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
-  
-  return bar + '<div class="card" id="queue_table_wrap"><div style="overflow-x:auto"><table><thead><tr>' + th_t + '<th>MMU / District</th><th>Category</th>' + th_p + '<th>Team</th><th>Status</th>' + th_d + '<th>Problem</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' + pager;
+  var th_loc = '<th onclick="sortQueue(\'district\')" style="cursor:pointer;user-select:none">MMU / Location ' + (FILT.sort_by === 'district' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
+  var th_s = '<th onclick="sortQueue(\'status\')" style="cursor:pointer;user-select:none">Status ' + (FILT.sort_by === 'status' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
+  var th_c = '<th onclick="sortQueue(\'created_at\')" style="cursor:pointer;user-select:none">Created At ' + (FILT.sort_by === 'created_at' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
+  var th_d = '<th onclick="sortQueue(\'due_at\')" style="cursor:pointer;user-select:none">TAT Due (SLA) ' + (FILT.sort_by === 'due_at' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
+
+  return bar + '<div class="card" id="queue_table_wrap"><div style="overflow-x:auto"><table><thead><tr>' + th_t + th_loc + '<th>Category</th><th>Team</th>' + th_s + th_c + th_d + '<th>Problem Statement</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' + pager;
 }
 
 var FORM_ACCORDION_OPEN = {
@@ -433,7 +1046,6 @@ function toggleFormAccordion(k) {
 /* ---------- register call ---------- */
 function viewNew() {
   var cats = Object.keys(META.routing).map(function (k) { return '<option value="' + k + '">' + esc(META.routing[k].label) + '</option>'; }).join('');
-  var pri = Object.keys(META.priority).map(function (k) { return '<option value="' + k + '">' + k + ' — ' + esc(META.priority[k]) + '</option>'; }).join('');
   
   return '<div class="card" style="margin-bottom:18px"><h3 style="margin-bottom:4px">Register a Toll-Free Breakdown Call</h3>' +
     '<div class="muted">SOP §4 — complete required fields below. Click any section on the left to expand or collapse sub-fields.</div></div>' +
@@ -496,15 +1108,12 @@ function viewNew() {
     // 4. Issue Description & SLA Routing
     '<div class="form-accordion-group ' + (FORM_ACCORDION_OPEN.issue ? 'active' : '') + '" id="fa_issue">' +
       '<div class="form-accordion-header" onclick="toggleFormAccordion(\'issue\')">' +
-        '<div class="form-accordion-title"><span class="form-accordion-num">4</span><span>Problem Statement &amp; SLA Routing</span><span class="form-accordion-summary">— Category &amp; Priority</span></div>' +
+        '<div class="form-accordion-title"><span class="form-accordion-num">4</span><span>Problem Statement &amp; SLA Routing</span><span class="form-accordion-summary">— Emergency Category &amp; Routing</span></div>' +
         '<span class="form-accordion-chevron">&#9654;</span>' +
       '</div>' +
       '<div class="form-accordion-body' + (FORM_ACCORDION_OPEN.issue ? '' : ' hide') + '">' +
         '<div class="fld"><label>Nature of the problem *</label><textarea id="f_prob" rows="3" placeholder="What exactly is happening?"></textarea></div>' +
-        '<div class="grid2">' +
-          '<div class="fld"><label>Priority level *</label><select id="f_pri">' + pri + '</select></div>' +
-          '<div class="fld"><label>Issue category *</label><select id="f_cat" onchange="previewRoute()">' + cats + '</select></div>' +
-        '</div>' +
+        '<div class="fld"><label>Issue category *</label><select id="f_cat" onchange="previewRoute()">' + cats + '</select></div>' +
         '<div class="route" id="rpre" style="margin-top:10px"></div>' +
       '</div>' +
     '</div>' +
@@ -625,16 +1234,41 @@ function createT() {
     district_id: districtId ? +districtId : null, mandal_id: mandalId ? +mandalId : null, machine_id: machineId ? +machineId : null,
     location: g('f_loc'), caller_name: g('f_cname'),
     caller_phone: g('f_cph'), equipment: g('f_eq'), problem: g('f_prob'), error_code: g('f_err'), impact: g('f_imp'),
-    category: g('f_cat'), priority: g('f_pri')
+    category: g('f_cat'), priority: 'P1'
   })
-    .then(function (d) { toast('Ticket ' + d.ticket_no + ' created → ' + d.team + (d.vip ? ' (VIP: bumped to P1)' : '')); TAB = 'queue'; render(); load(); })
+    .then(function (d) { toast('Ticket ' + d.ticket_no + ' created → ' + d.team + (d.vip ? ' (VIP Dispatch)' : '')); TAB = 'queue'; render(); load(); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 
 /* ---------- ticket detail ---------- */
 var MODAL_TICK = null;
-function openT(id) { api('GET', '/ticket/' + id).then(function (d) { renderT(d.ticket, d.events); loadAttachments(id); }); }
-function closeT() { document.getElementById('modal').innerHTML = ''; if (MODAL_TICK) { clearInterval(MODAL_TICK); MODAL_TICK = null; } }
+function markTicketNotifsRead(ticketId) {
+  if (!ticketId || !NOTIFS || !NOTIFS.length) return;
+  var unread = NOTIFS.filter(function (n) { return n.ticket_id === ticketId && !n.read_at; });
+  if (unread.length > 0) {
+    unread.forEach(function (n) {
+      n.read_at = 'now';
+      api('POST', '/notifications/' + n.id + '/read', {}).catch(function () {});
+    });
+    renderBell();
+    if (NOTIF_OPEN) renderNotifPanel();
+  }
+}
+function openT(id) {
+  CURRENT_MODAL_TICKET_ID = id;
+  saveState();
+  markTicketNotifsRead(id);
+  api('GET', '/ticket/' + id).then(function (d) {
+    renderT(d.ticket, d.events);
+    loadAttachments(id);
+  });
+}
+function closeT() {
+  CURRENT_MODAL_TICKET_ID = null;
+  saveState();
+  document.getElementById('modal').innerHTML = '';
+  if (MODAL_TICK) { clearInterval(MODAL_TICK); MODAL_TICK = null; }
+}
 function reopenT(id) {
   var reason = prompt('Reason for reopening this ticket (required):'); if (reason === null) return; if (!reason.trim()) { toast('A reason is required to reopen'); return; }
   api('POST', '/ticket/action', { id: id, action: 'reopen', note: reason.trim() }).then(function () { toast('Ticket reopened'); closeT(); load(); })
@@ -668,11 +1302,9 @@ function renderT(t, evs) {
     else A.push('<span class="muted">Reopen window (' + windowH + 'h) has passed - register a new ticket</span>');
   }
   var reroute = (ME.role === 'CC_MANAGER' || ME.role === 'CALL_TAKER') ?
-    ('<div class="grid2" style="margin-top:12px"><div class="fld"><label>Re-route to team</label><select id="a_team">' +
+    ('<div class="fld" style="margin-top:12px"><label>Re-route to team</label><select id="a_team">' +
       Object.keys(META.teams).map(function (k) { return '<option value="' + k + '"' + (k === t.team ? ' selected' : '') + '>' + esc(META.teams[k]) + '</option>'; }).join('') +
-      '</select><button class="btn o sm" style="margin-top:7px" onclick="act(' + t.id + ',\'reassign\')">Apply re-route</button></div>' +
-      '<div class="fld"><label>Change priority</label><select id="a_pri">' + Object.keys(META.priority).map(function (k) { return '<option value="' + k + '"' + (k === t.priority ? ' selected' : '') + '>' + k + '</option>'; }).join('') +
-      '</select><button class="btn o sm" style="margin-top:7px" onclick="act(' + t.id + ',\'repriority\')">Apply priority</button></div></div>') : '';
+      '</select><button class="btn o sm" style="margin-top:7px" onclick="act(' + t.id + ',\'reassign\')">Apply re-route</button></div>') : '';
   var canAssign = t.status !== 'CLOSED' && ((ME.role === t.team && ME.is_team_manager) || ME.role === 'CC_MANAGER');
   var assignBlock = canAssign ? ('<div class="fld" style="margin-top:12px"><label>Assign to engineer</label>' +
     '<select id="a_assignee_sel"><option value="">Loading roster…</option></select> ' +
@@ -689,7 +1321,7 @@ function renderT(t, evs) {
   
   document.getElementById('modal').innerHTML = '<div class="ovl" onclick="if(event.target===this)closeT()"><div class="sheet">' +
     '<div class="sh"><div><div style="font-size:19px;font-weight:800">' + esc(t.ticket_no) + ' &middot; ' + esc(t.category_label) + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '</div>' +
-    '<div style="font-size:12.5px;opacity:.9;margin-top:3px">' + esc(t.mmu_vehicle || '—') + ' &middot; ' + esc(t.district || '') + ' &middot; ' + esc(t.team_label) + ' &middot; ' + esc(t.priority) + '</div></div>' +
+    '<div style="font-size:12.5px;opacity:.9;margin-top:3px">' + esc(t.mmu_vehicle || '—') + ' &middot; ' + esc(t.district || '') + ' &middot; ' + esc(t.team_label) + ' &middot; <span class="pill p-crit" style="font-size:10.5px;padding:2px 7px">EMERGENCY SERVICE</span></div></div>' +
     '<button class="x" onclick="closeT()">&times;</button></div><div class="sb">' +
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px"><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + tatPill(t).replace('<span ', '<span id="modalTat" ') +
     (t.escalated ? '<span class="pill p-crit">ESCALATED</span>' : '') + '<span class="pill p-mut">TAT ' + esc(t.tat_mins) + ' min</span>' +
@@ -732,7 +1364,7 @@ function loadAttachments(id) {
   api('GET', '/ticket/' + id + '/attachments').then(function(rows) {
     var list = rows.length ? rows.map(function(a) {
       return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f3f4f6">' +
-        '<div><a href="/uploads/' + esc(a.filename) + '" target="_blank" style="color:var(--pur);font-weight:600;text-decoration:none">' + esc(a.original_name) + '</a>' +
+        '<div><a href="/cccapi/uploads/' + esc(a.filename) + '" target="_blank" style="color:var(--pur);font-weight:600;text-decoration:none">' + esc(a.original_name) + '</a>' +
         '<div class="muted">' + esc(a.uploaded_by) + ' (' + esc(a.uploaded_by_role) + ') &middot; ' + esc(a.created_at) + (a.note ? ' &middot; ' + esc(a.note) : '') + '</div></div>' +
         '</div>';
     }).join('') : '<div class="muted">No attachments yet.</div>';
@@ -768,22 +1400,65 @@ function uploadAttachment(id) {
 /* ---------- notifications ---------- */
 function loadNotifs() { api('GET', '/notifications').then(function (d) { NOTIFS = d.rows || []; renderBell(); if (NOTIF_OPEN) renderNotifPanel(); }).catch(function () { }); }
 function renderBell() {
-  var n = NOTIFS.filter(function (x) { return !x.read_at; }).length; var b = document.getElementById('nbadge');
-  if (!b) return; if (n > 0) { b.textContent = n > 99 ? '99+' : n; b.classList.remove('hide'); } else { b.classList.add('hide'); }
+  var unreadCount = (NOTIFS || []).filter(function (x) { return !x.read_at; }).length;
+  var b = document.getElementById('nbadge');
+  if (!b) return;
+  if (unreadCount > 0) {
+    b.textContent = unreadCount > 99 ? '99+' : unreadCount;
+    b.classList.remove('hide');
+    b.style.display = 'inline-block';
+  } else {
+    b.textContent = '';
+    b.classList.add('hide');
+    b.style.display = 'none';
+  }
 }
-function toggleNotifs() { NOTIF_OPEN = !NOTIF_OPEN; if (NOTIF_OPEN) { renderNotifPanel(); } else { document.getElementById('npanel').innerHTML = ''; } }
+function closeNotifs() {
+  if (NOTIF_OPEN) {
+    NOTIF_OPEN = false;
+    var np = document.getElementById('npanel');
+    if (np) np.innerHTML = '';
+  }
+}
+function markAllNotifsRead() {
+  if (!NOTIFS || !NOTIFS.length) return;
+  var unread = NOTIFS.filter(function (n) { return !n.read_at; });
+  if (unread.length > 0) {
+    unread.forEach(function (n) { n.read_at = 'now'; });
+    renderBell();
+    api('POST', '/notifications/read-all', {}).catch(function () {});
+  }
+}
+function toggleNotifs() {
+  NOTIF_OPEN = !NOTIF_OPEN;
+  if (NOTIF_OPEN) {
+    renderNotifPanel();
+    // Viewing notifications clears unread status so icon numbers are removed
+    markAllNotifsRead();
+  } else {
+    var np = document.getElementById('npanel');
+    if (np) np.innerHTML = '';
+  }
+}
 function renderNotifPanel() {
+  var unreadCount = (NOTIFS || []).filter(function (n) { return !n.read_at; }).length;
+  var markAllBtn = unreadCount > 0 ?
+    '<button class="btn sm o" style="font-size:11px;padding:2px 8px;border-radius:6px;margin:0" onclick="markAllNotifsRead();renderNotifPanel()">Mark all read</button>' : '';
   var body = !NOTIFS.length ? '<div class="empty" style="padding:24px">No notifications</div>' :
     NOTIFS.map(function (n) {
       return '<div class="ni' + (n.read_at ? '' : ' unread') + '" onclick="openNotif(' + n.id + ',' + (n.ticket_id || 'null') + ')">' +
         '<div class="t">' + esc((n.type || '').replace(/_/g, ' ')) + '</div><div>' + esc(n.message) + '</div><div class="muted">' + esc(n.created_at) + '</div></div>';
     }).join('');
-  document.getElementById('npanel').innerHTML = '<div class="npanel"><div class="nh">Notifications</div>' + body + '</div>';
+  document.getElementById('npanel').innerHTML = '<div class="npanel"><div class="nh" style="display:flex;align-items:center;justify-content:space-between"><span>Notifications</span>' + markAllBtn + '</div>' + body + '</div>';
 }
 function openNotif(id, ticketId) {
   var n = NOTIFS.find(function (x) { return x.id === id; });
-  if (n && !n.read_at) { api('POST', '/notifications/' + id + '/read', {}).then(function () { n.read_at = 'now'; renderBell(); if (NOTIF_OPEN) renderNotifPanel(); }).catch(function () { }); }
-  NOTIF_OPEN = false; document.getElementById('npanel').innerHTML = '';
+  if (n && !n.read_at) {
+    n.read_at = 'now';
+    api('POST', '/notifications/' + id + '/read', {}).catch(function () {});
+    renderBell();
+  }
+  closeNotifs();
   if (ticketId) { TAB = 'queue'; render(); openT(ticketId); }
 }
 
@@ -831,12 +1506,31 @@ function viewDash() {
     kpi(k.avg_resolution_mins == null ? '—' : k.avg_resolution_mins + 'm', 'Avg resolution') +
     kpi(k.escalation_pct + '%', 'Escalation %', 'var(--mag)') + kpi(k.closed_total, 'Closed (all time)') +
     '</div>' +
+    (DASH.chronic_equipment && DASH.chronic_equipment.length ?
+      ('<div class="card" style="margin-bottom:14px;border-left:4px solid #DC2626">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">' +
+          '<div><div style="font-weight:800;font-size:15px;color:#991B1B">⚠️ Chronic Failing Units Watchdog (≥ 3 Breakdowns in 30 Days)</div>' +
+          '<div class="muted" style="font-size:12px;margin-top:2px">Identifies high-failure analyzers and MMUs requiring manufacturer warranty replacement / root-cause overhaul.</div></div>' +
+          '<div class="pill-chronic" style="padding:4px 10px;font-size:12px">⚠️ ' + DASH.chronic_equipment.length + ' Chronic Unit' + (DASH.chronic_equipment.length === 1 ? '' : 's') + ' Flagged</div>' +
+        '</div>' +
+        '<div style="overflow-x:auto"><table><thead><tr><th>MMU Vehicle</th><th>District</th><th>Breakdowns (30d)</th><th>Open Status</th><th>Failing Issue Types</th><th>Last Breakdown</th><th>Action</th></tr></thead><tbody>' +
+        DASH.chronic_equipment.map(function (c) {
+          return '<tr>' +
+            '<td><b>' + esc(c.mmu_vehicle) + '</b></td>' +
+            '<td>' + esc(c.district || '—') + '</td>' +
+            '<td><span class="pill-chronic">⚠️ ' + esc(c.n) + ' times</span></td>' +
+            '<td>' + (c.open_n > 0 ? ('<span class="pill p-crit">' + c.open_n + ' Open</span>') : '<span class="pill p-ok">Resolved</span>') + '</td>' +
+            '<td>' + esc((c.categories || '').split(',').map(function (cat) { return (META.routing[cat] || {}).label || cat; }).join(', ')) + '</td>' +
+            '<td>' + esc(c.last_breakdown_at || '—') + '</td>' +
+            '<td><button class="btn sm" onclick="viewVehicleTickets(\'' + esc(c.mmu_vehicle) + '\')">View Tickets</button></td>' +
+          '</tr>';
+        }).join('') +
+        '</tbody></table></div></div>') : '') +
     '<div class="grid2">' +
     tbl('Tickets by category', DASH.by_category, [['Category', function (r) { return (META.routing[r.category] || {}).label || r.category; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }]]) +
     tbl('Tickets by responsible team', DASH.by_team, [['Team', function (r) { return META.teams[r.team] || r.team; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }], ['Breached', function (r) { return r.breach_n; }]]) +
-    tbl('By priority', DASH.by_priority, [['Priority', function (r) { return r.priority; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }]]) +
     tbl('By status', DASH.by_status, [['Status', function (r) { return (r.status || '').replace(/_/g, ' '); }], ['Count', function (r) { return r.n; }]]) +
-    tbl('Repeat issues by MMU', DASH.repeat_vehicles, [['MMU / Vehicle', function (r) { return r.mmu_vehicle; }], ['Tickets', function (r) { return r.n; }]]) +
+    tbl('Repeat issues by MMU', DASH.repeat_vehicles, [['MMU / Vehicle', function (r) { return '<a href="javascript:void(0)" onclick="viewVehicleTickets(\'' + esc(r.mmu_vehicle) + '\')" style="color:var(--pur);font-weight:700;text-decoration:underline">' + esc(r.mmu_vehicle) + '</a>'; }], ['Tickets', function (r) { return r.n; }], ['Action', function (r) { return '<button class="btn sm o" onclick="viewVehicleTickets(\'' + esc(r.mmu_vehicle) + '\')">View All</button>'; }]]) +
     tbl('Daily volume (14 days)', DASH.daily, [['Date', function (r) { return r.d; }], ['Created', function (r) { return r.n; }], ['Closed', function (r) { return r.closed_n; }]]) +
     '</div>';
 }
@@ -847,13 +1541,34 @@ function viewMatrix() {
     var r = META.routing[k];
     return '<tr><td><b>' + esc(r.label) + '</b></td><td>' + esc(META.teams[r.team]) + '</td><td>' + esc(r.owner) + '</td></tr>';
   }).join('');
-  var tat = Object.keys(META.tat).map(function (k) { return '<tr><td><span class="pill p-' + k + '">' + k + '</span></td><td>' + esc(META.priority[k]) + '</td><td><b>' + esc(META.tat[k]) + ' min</b></td></tr>'; }).join('');
   return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Issue routing matrix</h4>' +
     '<div class="muted" style="margin-bottom:12px">SOP §5 — every classified issue routes to one responsible team with a named initial owner.</div>' +
     '<table><thead><tr><th>Issue type</th><th>Responsible team</th><th>Initial owner</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
-    '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Priority &amp; TAT</h4>' +
-    '<div class="muted" style="margin-bottom:12px">SOP §8 — TAT drives the countdown, at-risk warning and breach flag on every ticket.</div>' +
-    '<table><thead><tr><th>Priority</th><th>Example</th><th>TAT</th></tr></thead><tbody>' + tat + '</tbody></table></div>' +
+    '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Emergency Response SLA &amp; TAT Monitoring</h4>' +
+    '<div class="muted" style="margin-bottom:14px">SOP §8 — All 104 Emergency &amp; MMU issues operate under top-priority emergency dispatch with automated time-to-breach surveillance.</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:16px">' +
+      '<div style="background:#F0FDF4;border:1.5px solid #BBF7D0;border-radius:10px;padding:14px">' +
+        '<div style="font-size:11.5px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:0.04em">Standard Emergency TAT</div>' +
+        '<div style="font-size:22px;font-weight:800;color:#15803D;margin:6px 0">240 min <span style="font-size:13px;font-weight:600">(4 Hours)</span></div>' +
+        '<div style="font-size:12px;color:#166534;line-height:1.4">Direct dispatch to local district engineer upon call intake</div>' +
+      '</div>' +
+      '<div style="background:#FEF3C7;border:1.5px solid #FDE68A;border-radius:10px;padding:14px">' +
+        '<div style="font-size:11.5px;font-weight:700;color:#92400E;text-transform:uppercase;letter-spacing:0.04em">At-Risk Warning (SLA)</div>' +
+        '<div style="font-size:22px;font-weight:800;color:#B45309;margin:6px 0">&le; 60 min</div>' +
+        '<div style="font-size:12px;color:#92400E;line-height:1.4">Amber alert triggered; supervisory review initiated</div>' +
+      '</div>' +
+      '<div style="background:#FFF1F2;border:1.5px solid #FECDD3;border-radius:10px;padding:14px">' +
+        '<div style="font-size:11.5px;font-weight:700;color:#9F1239;text-transform:uppercase;letter-spacing:0.04em">Critical Escalation</div>' +
+        '<div style="font-size:22px;font-weight:800;color:#BE123C;margin:6px 0">&le; 15 min</div>' +
+        '<div style="font-size:12px;color:#9F1239;line-height:1.4">Urgent escalation dispatched to Global Team Executive</div>' +
+      '</div>' +
+    '</div>' +
+    '<table><thead><tr><th>Emergency Stage</th><th>Protocol &amp; Action Trigger</th><th>Countdown Target</th></tr></thead><tbody>' +
+      '<tr><td><span class="pill p-ok">ON TRACK</span></td><td>Standard field diagnostic &amp; engineering repair workflow</td><td><b>&gt; 60 min remaining</b></td></tr>' +
+      '<tr><td><span class="pill p-warn">AT RISK</span></td><td>Automated supervisory notification to District Team Lead</td><td><b>&le; 60 min remaining</b></td></tr>' +
+      '<tr><td><span class="pill p-critical">CRITICAL</span></td><td>High-priority alert to Statewide Department Executive</td><td><b>&le; 15 min remaining</b></td></tr>' +
+      '<tr><td><span class="pill p-crit">BREACHED</span></td><td>Statewide Command Center non-compliance escalation flag</td><td><b>Elapsed &gt; 240 min</b></td></tr>' +
+    '</tbody></table></div>' +
     '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">Ticket status flow</h4>' +
     '<div class="muted" style="margin-bottom:12px">SOP §11</div><div style="display:flex;gap:8px;flex-wrap:wrap">' +
     META.flow.map(function (s, i) { return '<span class="pill p-mut">' + (i + 1) + '. ' + esc(s.replace(/_/g, ' ')) + '</span>'; }).join('<span class="muted">→</span>') + '</div></div>';
@@ -905,22 +1620,185 @@ function ltMachineSearchInput() {
     }).catch(function () { });
   }, 300);
 }
+
+// ==================== OFFLINE RESILIENCE & COMPRESSION ENGINE ====================
+
+function compressImage(file, maxDim, quality, callback) {
+  if (!file || !file.type.match(/image.*/)) {
+    return callback(file, null);
+  }
+  var reader = new FileReader();
+  reader.onload = function (e) {
+    var img = new Image();
+    img.onload = function () {
+      var canvas = document.createElement('canvas');
+      var w = img.width, h = img.height;
+      if (w > h) {
+        if (w > maxDim) { h = Math.round((h * maxDim) / w); w = maxDim; }
+      } else {
+        if (h > maxDim) { w = Math.round((w * maxDim) / h); h = maxDim; }
+      }
+      canvas.width = w;
+      canvas.height = h;
+      var ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      var dataUrl = canvas.toDataURL('image/jpeg', quality || 0.75);
+      canvas.toBlob(function (blob) {
+        var compFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", {
+          type: "image/jpeg",
+          lastModified: Date.now()
+        });
+        callback(compFile, dataUrl);
+      }, 'image/jpeg', quality || 0.75);
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function dataUrlToBlob(dataurl) {
+  try {
+    var arr = dataurl.split(','), mime = arr[0].match(/:(.*?);/)[1],
+        bstr = atob(arr[1]), n = bstr.length, u8arr = new Uint8Array(n);
+    while (n--) { u8arr[n] = bstr.charCodeAt(n); }
+    return new Blob([u8arr], { type: mime });
+  } catch (e) { return null; }
+}
+
+function getLTOutbox() {
+  try { return JSON.parse(localStorage.getItem('ccc_lt_outbox') || '[]'); } catch (e) { return []; }
+}
+function saveLTOutbox(items) {
+  localStorage.setItem('ccc_lt_outbox', JSON.stringify(items));
+}
+function enqueueLTOutbox(item) {
+  var list = getLTOutbox();
+  item.outbox_id = 'OB-' + Date.now();
+  item.queued_at = new Date().toLocaleString();
+  list.push(item);
+  saveLTOutbox(list);
+}
+function removeLTOutboxItem(outboxId) {
+  var list = getLTOutbox().filter(function (x) { return x.outbox_id !== outboxId; });
+  saveLTOutbox(list);
+}
+
+var SYNCING_OUTBOX = false;
+function syncLTOutbox(manual) {
+  if (SYNCING_OUTBOX) return;
+  var list = getLTOutbox();
+  if (!list.length) {
+    if (manual) toast('✨ Outbox is empty — all reports are synced');
+    return;
+  }
+  if (!navigator.onLine) {
+    if (manual) toast('⚠️ Offline / No cellular signal. Will auto-sync when network returns.');
+    return;
+  }
+  SYNCING_OUTBOX = true;
+  var item = list[0];
+  var fd = new FormData();
+  fd.append('category', item.category);
+  fd.append('reason_codes', JSON.stringify(item.reason_codes));
+  if (item.machine_id) fd.append('machine_id', item.machine_id);
+  fd.append('priority', item.priority);
+  fd.append('problem', item.problem || '');
+  if (item.photo_data_url) {
+    var blob = dataUrlToBlob(item.photo_data_url);
+    if (blob) fd.append('photo', blob, item.photo_name || 'field_photo.jpg');
+  }
+
+  apiForm('/lt/tickets', fd).then(function (d) {
+    removeLTOutboxItem(item.outbox_id);
+    SYNCING_OUTBOX = false;
+    playAlertSound('new');
+    toast('✅ Outbox Ticket ' + d.ticket_no + ' synced successfully!');
+    if (TAB === 'mine') loadLTMine();
+    if (getLTOutbox().length > 0) {
+      setTimeout(function () { syncLTOutbox(false); }, 600);
+    }
+  }).catch(function (e) {
+    SYNCING_OUTBOX = false;
+    if (manual) toast('Sync failed: ' + (typeof e === 'string' ? e : 'Network unreachable'));
+  });
+}
+
+function saveLTFormDraft() {
+  if (!ME || ME.role !== 'LT') return;
+  var draft = {
+    category: document.getElementById('lt_cat') ? document.getElementById('lt_cat').value : '',
+    reasons: LT_SELECTED_REASONS,
+    machine: document.getElementById('lt_machine') ? document.getElementById('lt_machine').value : '',
+    machine_id: document.getElementById('lt_machine_id') ? document.getElementById('lt_machine_id').value : '',
+    notes: document.getElementById('lt_notes') ? document.getElementById('lt_notes').value : ''
+  };
+  localStorage.setItem('ccc_lt_draft_' + ME.username, JSON.stringify(draft));
+}
+
+function clearLTFormDraft() {
+  if (ME) localStorage.removeItem('ccc_lt_draft_' + ME.username);
+}
+
+function restoreLTFormDraft() {
+  if (!ME || ME.role !== 'LT') return;
+  try {
+    var raw = localStorage.getItem('ccc_lt_draft_' + ME.username);
+    if (!raw) return;
+    var draft = JSON.parse(raw);
+    if (draft.category && document.getElementById('lt_cat')) {
+      document.getElementById('lt_cat').value = draft.category;
+      ltCategoryChanged(function () {
+        LT_SELECTED_REASONS = draft.reasons || [];
+        var cbs = document.querySelectorAll('#lt_reasons_box input[type="checkbox"]');
+        cbs.forEach(function (cb) {
+          if (LT_SELECTED_REASONS.indexOf(cb.value) >= 0) cb.checked = true;
+        });
+      });
+    }
+    if (draft.machine && document.getElementById('lt_machine')) document.getElementById('lt_machine').value = draft.machine;
+    if (draft.machine_id && document.getElementById('lt_machine_id')) document.getElementById('lt_machine_id').value = draft.machine_id;
+    if (draft.notes && document.getElementById('lt_notes')) document.getElementById('lt_notes').value = draft.notes;
+  } catch (e) {}
+}
+
 function ltPhotoPreview() {
   var f = document.getElementById('lt_photo').files[0], prev = document.getElementById('lt_photo_prev');
   if (!f) { prev.innerHTML = ''; return; }
-  prev.innerHTML = '<img src="' + URL.createObjectURL(f) + '" style="max-width:160px;max-height:160px;border-radius:10px;margin-top:8px;object-fit:cover">';
+  prev.innerHTML = '<div class="muted" style="margin-top:6px">Optimizing photo for mobile upload…</div>';
+  compressImage(f, 1280, 0.75, function (compFile, dataUrl) {
+    window._LT_COMPRESSED_PHOTO = compFile;
+    window._LT_COMPRESSED_DATAURL = dataUrl;
+    var sizeKb = Math.round(compFile.size / 1024);
+    prev.innerHTML = '<img src="' + dataUrl + '" style="max-width:160px;max-height:160px;border-radius:10px;margin-top:8px;object-fit:cover">' +
+      '<div class="img-compress-tag">⚡ Optimized: ' + sizeKb + ' KB (Ready for low-signal upload)</div>';
+  });
 }
+
 function viewLTReport() {
-  return '<div class="card"><h3 style="margin-bottom:4px">Report an Issue</h3>' +
-    '<div class="muted" style="margin-bottom:16px">Tell us what\'s wrong — it goes straight to your district\'s support team.</div>' +
-    '<div class="fld"><label>What kind of issue? *</label><select id="lt_cat" onchange="ltCategoryChanged()"><option value="">Loading…</option></select></div>' +
+  var outboxCount = getLTOutbox().length;
+  var outboxBanner = outboxCount > 0 ? (
+    '<div class="offline-alert-box">' +
+      '<div class="offline-alert-text"><b>📤 ' + outboxCount + ' Outbox Report' + (outboxCount > 1 ? 's' : '') + ' Pending Sync</b><br>Saved safely offline. Will auto-upload when signal returns.</div>' +
+      '<button class="btn o sm" onclick="syncLTOutbox(true)">Sync Now</button>' +
+    '</div>'
+  ) : '';
+
+  setTimeout(restoreLTFormDraft, 50);
+
+  return outboxBanner +
+    '<div class="card"><h3 style="margin-bottom:4px">Report an Issue</h3>' +
+    '<div class="muted" style="margin-bottom:16px">Tell us what\'s wrong — automatically routes to your district\'s support team. (Works online &amp; offline)</div>' +
+    '<div class="fld"><label>What kind of issue? *</label><select id="lt_cat" onchange="ltCategoryChanged(); saveLTFormDraft();"><option value="">Loading…</option></select></div>' +
     '<div class="fld"><label>What\'s wrong? (select all that apply) *</label><div id="lt_reasons_box" class="ltreasons"><div class="muted">Select an issue type first</div></div></div>' +
-    '<div class="fld"><label>Machine (optional)</label><input id="lt_machine" list="lt_machineDL" placeholder="Start typing the machine name…" oninput="ltMachineSearchInput()" autocomplete="off"><datalist id="lt_machineDL"></datalist><input type="hidden" id="lt_machine_id"></div>' +
-    '<div class="fld"><label>Add a photo (optional)</label><input type="file" id="lt_photo" accept="image/*" onchange="ltPhotoPreview()"><div id="lt_photo_prev"></div></div>' +
-    '<div class="fld"><label>Anything else? (optional)</label><textarea id="lt_notes" rows="3" placeholder="Extra details, if any"></textarea></div>' +
-    '<div class="fld"><label>How urgent is this?</label><select id="lt_pri"><option value="P1">Urgent — work has stopped</option><option value="P2" selected>Can wait a bit</option></select></div>' +
-    '<button class="btn" style="margin-top:10px" onclick="submitLTTicket()">Submit report</button></div>';
+    '<div class="fld"><label>Machine (optional)</label><input id="lt_machine" list="lt_machineDL" placeholder="Start typing the machine name…" oninput="ltMachineSearchInput(); saveLTFormDraft();" autocomplete="off"><datalist id="lt_machineDL"></datalist><input type="hidden" id="lt_machine_id"></div>' +
+    '<div class="fld"><label>Add a photo (auto-compressed for rural network) (optional)</label><input type="file" id="lt_photo" accept="image/*" onchange="ltPhotoPreview()"><div id="lt_photo_prev"></div></div>' +
+    '<div class="fld"><label>Anything else? (optional)</label><textarea id="lt_notes" rows="3" placeholder="Extra details, if any" oninput="saveLTFormDraft()"></textarea></div>' +
+    '<div style="display:flex;gap:10px;margin-top:14px">' +
+      '<button class="btn" style="min-width:180px" onclick="submitLTTicket()">Submit report</button>' +
+    '</div>' +
+    '</div>';
 }
+
 function apiForm(p, fd) {
   var h = {}; if (TOK) h.Authorization = 'Bearer ' + TOK;
   return fetch(API + p, { method: 'POST', headers: h, body: fd }).then(function (r) {
@@ -928,25 +1806,110 @@ function apiForm(p, fd) {
     return r.json().then(function (d) { if (!r.ok) throw (d.detail || ('HTTP ' + r.status)); return d; });
   });
 }
+
 function submitLTTicket() {
   var cat = gv('lt_cat') || document.getElementById('lt_cat').value;
   if (!cat) return toast('Select an issue type');
   if (!LT_SELECTED_REASONS.length) return toast('Select at least one reason');
+  
+  var mid = gv('lt_machine_id');
+  var pri = 'P1';
+  var problem = gv('lt_notes');
+  var photoFile = window._LT_COMPRESSED_PHOTO || (document.getElementById('lt_photo') ? document.getElementById('lt_photo').files[0] : null);
+  var photoDataUrl = window._LT_COMPRESSED_DATAURL || null;
+
+  // If strictly offline, queue immediately without waiting for timeout
+  if (!navigator.onLine) {
+    enqueueLTOutbox({
+      category: cat,
+      reason_codes: LT_SELECTED_REASONS,
+      machine_id: mid || null,
+      priority: pri,
+      problem: problem,
+      photo_data_url: photoDataUrl,
+      photo_name: photoFile ? photoFile.name : null
+    });
+    clearLTFormDraft();
+    window._LT_COMPRESSED_PHOTO = null;
+    window._LT_COMPRESSED_DATAURL = null;
+    toast('📡 Offline: Saved to Outbox! Will auto-upload when signal returns.');
+    TAB = 'mine'; render(); load();
+    return;
+  }
+
+  // Attempt live upload
   var fd = new FormData();
   fd.append('category', cat);
   fd.append('reason_codes', JSON.stringify(LT_SELECTED_REASONS));
-  var mid = gv('lt_machine_id'); if (mid) fd.append('machine_id', mid);
-  fd.append('priority', document.getElementById('lt_pri').value);
-  fd.append('problem', gv('lt_notes'));
-  var photo = document.getElementById('lt_photo').files[0];
-  if (photo) fd.append('photo', photo);
-  apiForm('/lt/tickets', fd).then(function (d) { toast('Reported! Ticket ' + d.ticket_no + ' sent to the right team'); TAB = 'mine'; render(); load(); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Could not submit report'); });
+  if (mid) fd.append('machine_id', mid);
+  fd.append('priority', pri);
+  fd.append('problem', problem);
+  if (photoFile) fd.append('photo', photoFile);
+
+  toast('📤 Uploading report…');
+  apiForm('/lt/tickets', fd).then(function (d) {
+    clearLTFormDraft();
+    window._LT_COMPRESSED_PHOTO = null;
+    window._LT_COMPRESSED_DATAURL = null;
+    toast('Reported! Ticket ' + d.ticket_no + ' sent to district team');
+    TAB = 'mine'; render(); load();
+  }).catch(function (e) {
+    // On network failure or drop, save to outbox so nothing is lost
+    enqueueLTOutbox({
+      category: cat,
+      reason_codes: LT_SELECTED_REASONS,
+      machine_id: mid || null,
+      priority: pri,
+      problem: problem,
+      photo_data_url: photoDataUrl,
+      photo_name: photoFile ? photoFile.name : null
+    });
+    clearLTFormDraft();
+    window._LT_COMPRESSED_PHOTO = null;
+    window._LT_COMPRESSED_DATAURL = null;
+    toast('📡 Network dropped during upload. Saved to Outbox for auto-sync!');
+    TAB = 'mine'; render(); load();
+  });
 }
-function loadLTMine() { api('GET', '/lt/tickets').then(function (rows) { LT_TICKETS = rows; render(); }).catch(function () { }); }
+
+function loadLTMine() {
+  syncLTOutbox(false);
+  api('GET', '/lt/tickets').then(function (rows) { LT_TICKETS = rows; render(); }).catch(function () { render(); });
+}
+
 function viewLTMine() {
-  if (!LT_TICKETS.length) return '<div class="card"><div class="empty">You haven\'t reported anything yet.</div></div>';
-  return LT_TICKETS.map(function (t) {
+  var outbox = getLTOutbox();
+  var outboxHtml = '';
+  if (outbox.length > 0) {
+    outboxHtml = '<div style="margin-bottom:18px">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+        '<h4 style="margin:0;font-size:15px;color:#92400E">📤 Offline Outbox (' + outbox.length + ' Pending Sync)</h4>' +
+        '<button class="btn o sm" onclick="syncLTOutbox(true)">Sync All Outbox</button>' +
+      '</div>' +
+      outbox.map(function (item) {
+        var photoPrev = item.photo_data_url ? ('<img src="' + item.photo_data_url + '" style="max-width:120px;max-height:120px;border-radius:8px;margin-top:8px;object-fit:cover">') : '';
+        return '<div class="outbox-card">' +
+          '<div class="outbox-card-header">' +
+            '<div><b>' + esc(item.category) + ' Issue</b> · <span class="muted">' + esc(item.queued_at) + '</span></div>' +
+            '<span class="outbox-badge">⏳ Queued for Upload</span>' +
+          '</div>' +
+          '<div><b>Reasons:</b> ' + esc((item.reason_codes || []).join(', ')) + '</div>' +
+          (item.problem ? ('<div style="margin-top:6px">' + esc(item.problem) + '</div>') : '') +
+          photoPrev +
+          '<div style="display:flex;gap:8px;margin-top:10px">' +
+            '<button class="btn sm" onclick="syncLTOutbox(true)">Upload Now</button>' +
+            '<button class="btn o sm" onclick="removeLTOutboxItem(\'' + item.outbox_id + '\'); render();">Discard</button>' +
+          '</div>' +
+        '</div>';
+      }).join('') +
+    '</div>';
+  }
+
+  if (!LT_TICKETS.length && !outbox.length) {
+    return '<div class="card"><div class="empty">You haven\'t reported anything yet.</div></div>';
+  }
+
+  var ticketsHtml = LT_TICKETS.map(function (t) {
     var photo = t.photo_path ? ('<img src="/uploads/' + esc(t.photo_path) + '" style="max-width:140px;max-height:140px;border-radius:10px;margin-top:10px;object-fit:cover">') : '';
     var actions = '';
     if (t.status === 'RESOLVED') actions = '<button class="btn g sm" onclick="ltConfirmFixed(' + t.id + ')">Confirm — it\'s fixed</button>';
@@ -959,7 +1922,10 @@ function viewLTMine() {
       (t.resolution ? ('<div class="muted" style="margin-top:8px"><b>Resolution:</b> ' + esc(t.resolution) + '</div>') : '') +
       photo + (actions ? ('<div style="margin-top:12px">' + actions + '</div>') : '') + '</div>';
   }).join('');
+
+  return outboxHtml + ticketsHtml;
 }
+
 function ltConfirmFixed(id) {
   api('POST', '/ticket/action', { id: id, action: 'confirm', confirmed_by: ME.name }).then(function () { toast('Marked as fixed — thank you'); loadLTMine(); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Could not confirm'); });
@@ -979,7 +1945,7 @@ function ltReopenSame(id) {
    explicitly. Actions (create/update) still refresh immediately afterward -
    that's a deliberate, user-initiated reload of a form that just submitted,
    not a background one racing live typing. */
-function goAdmin(t) { ADMIN_TAB = t; render(); if (!ADMIN_LOADED[t]) loadAdminSection(t); }
+function goAdmin(t) { TAB = 'admin'; ADMIN_TAB = t; saveState(); render(); if (!ADMIN_LOADED[t]) loadAdminSection(t); }
 function loadAdminSection(t) {
   if (t === 'teams') api('GET', '/admin/teams').then(function (d) { ADMIN_TEAMS = d; ADMIN_LOADED.teams = true; if (ADMIN_TAB === 'teams') render(); });
   else if (t === 'categories') api('GET', '/admin/teams').then(function (d) {
@@ -1011,10 +1977,7 @@ function loadAdminSection(t) {
       api('GET', '/admin/mandals').then(function (m) { ADMIN_MANDALS = m; ADMIN_LOADED.geo = true; if (ADMIN_TAB === 'geo') render(); });
     });
   });
-  else if (t === 'vehicles') api('GET', '/admin/vehicles').then(function (d) {
-    ADMIN_VEHICLES = d;
-    api('GET', '/admin/mandals').then(function (m) { ADMIN_MANDALS = m; ADMIN_LOADED.vehicles = true; if (ADMIN_TAB === 'vehicles') render(); });
-  });
+  else if (t === 'vehicles') api('GET', '/admin/vehicles').then(function (d) { ADMIN_VEHICLES = d; ADMIN_LOADED.vehicles = true; if (ADMIN_TAB === 'vehicles') render(); });
   else if (t === 'reasons') api('GET', '/admin/categories').then(function (c) {
     ADMIN_CATEGORIES = c;
     api('GET', '/admin/reasons').then(function (d) { ADMIN_REASONS = d; ADMIN_LOADED.reasons = true; if (ADMIN_TAB === 'reasons') render(); });
@@ -1047,7 +2010,7 @@ function viewAdmin() {
   else if (ADMIN_TAB === 'reasons') body = viewAdminReasons();
   else if (ADMIN_TAB === 'machines') body = viewAdminMachines();
   else if (ADMIN_TAB === 'sla') body = viewAdminSla();
-  else if (ADMIN_TAB === 'users') body = viewAdminUsers();
+  else if (ADMIN_TAB === 'users') { body = viewAdminUsers(); setTimeout(function () { syncDynamicUserForm('au'); }, 10); }
   else if (ADMIN_TAB === 'audit') body = viewAdminAudit();
   return bar + body;
 }
@@ -1074,14 +2037,9 @@ function adminCreateTeam() {
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminRenameTeam(code) {
-  var t = ADMIN_TEAMS.find(function (x) { return x.code === code; });
-  editModal('Rename team ' + code,
-    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(t ? t.name : '') + '"></div>',
-    function () {
-      var name = gv('em_name'); if (!name) { toast('Name is required'); return; }
-      api('PUT', '/admin/teams/' + code, { name: name }).then(function () { closeModal2(); toast('Renamed'); loadAdminSection('teams'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
+  var name = prompt('New name for ' + code + ':'); if (!name) return;
+  api('PUT', '/admin/teams/' + code, { name: name }).then(function () { toast('Renamed'); loadAdminSection('teams'); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminToggleTeam(code, active) {
   api('PUT', '/admin/teams/' + code, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('teams'); })
@@ -1124,15 +2082,10 @@ function adminMoveCategory(code) {
 }
 function adminEditCategory(code) {
   var c = ADMIN_CATEGORIES.find(function (x) { return x.code === code; });
-  editModal('Edit category ' + code,
-    '<div class="fld"><label for="em_label">Label</label><input id="em_label" value="' + esc(c.label) + '"></div>' +
-    '<div class="fld"><label for="em_owner">Default owner</label><input id="em_owner" value="' + esc(c.default_owner || '') + '"></div>',
-    function () {
-      var label = gv('em_label'); if (!label) { toast('Label is required'); return; }
-      api('PUT', '/admin/categories/' + code, { label: label, default_owner: gv('em_owner') })
-        .then(function () { closeModal2(); toast('Updated'); loadAdminSection('categories'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
+  var label = prompt('Label:', c.label); if (label === null) return;
+  var owner = prompt('Default owner:', c.default_owner || ''); if (owner === null) return;
+  api('PUT', '/admin/categories/' + code, { label: label, default_owner: owner }).then(function () { toast('Updated'); loadAdminSection('categories'); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminToggleCategory(code, active) {
   api('PUT', '/admin/categories/' + code, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('categories'); })
@@ -1157,8 +2110,7 @@ function viewAdminGeo() {
   var zoneRows = ADMIN_ZONES.map(function (z) {
     return '<tr><td><b>' + esc(z.name) + '</b></td><td>' + esc((META.teams || {})[z.team_code] || z.team_code) + '</td>' +
       '<td>' + (z.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
-      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminEditZone(' + z.id + ')">Edit</button>' +
-      '<button class="btn ' + (z.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleZone(' + z.id + ',' + (!z.is_active) + ')">' + (z.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+      '<td><button class="btn ' + (z.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleZone(' + z.id + ',' + (!z.is_active) + ')">' + (z.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
   var districtOpts = ADMIN_DISTRICTS.filter(function (d) { return d.is_active; }).map(function (d) { return '<option value="' + d.id + '">' + esc(d.name) + '</option>'; }).join('');
   var zoneOpts = '<option value="">No zone (category-default routing)</option>' + ADMIN_ZONES.filter(function (z) { return z.is_active; }).map(function (z) { return '<option value="' + z.id + '">' + esc(z.name) + '</option>'; }).join('');
@@ -1167,8 +2119,7 @@ function viewAdminGeo() {
     var z = ADMIN_ZONES.find(function (x) { return x.id === m.zone_id; });
     return '<tr><td><b>' + esc(m.name) + '</b></td><td>' + esc(d ? d.name : m.district_id) + '</td><td>' + esc(z ? z.name : '—') + '</td>' +
       '<td>' + (m.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
-      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminEditMandal(' + m.id + ')">Edit</button>' +
-      '<button class="btn ' + (m.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleMandal(' + m.id + ',' + (!m.is_active) + ')">' + (m.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+      '<td><button class="btn ' + (m.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleMandal(' + m.id + ',' + (!m.is_active) + ')">' + (m.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
   return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Districts</h4>' +
     '<table><thead><tr><th>Name</th><th>Status</th><th></th></tr></thead><tbody>' + districtRows + '</tbody></table></div>' +
@@ -1199,14 +2150,9 @@ function adminCreateDistrict() {
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminRenameDistrict(id) {
-  var d = ADMIN_DISTRICTS.find(function (x) { return x.id === id; });
-  editModal('Rename district',
-    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(d ? d.name : '') + '"></div>',
-    function () {
-      var name = gv('em_name'); if (!name) { toast('Name is required'); return; }
-      api('PUT', '/admin/districts/' + id, { name: name }).then(function () { closeModal2(); toast('Renamed'); loadAdminSection('geo'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
+  var name = prompt('New name:'); if (!name) return;
+  api('PUT', '/admin/districts/' + id, { name: name }).then(function () { toast('Renamed'); loadAdminSection('geo'); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminToggleDistrict(id, active) {
   api('PUT', '/admin/districts/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('geo'); })
@@ -1222,19 +2168,6 @@ function adminToggleZone(id, active) {
   api('PUT', '/admin/zones/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('geo'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
-function adminEditZone(id) {
-  var z = ADMIN_ZONES.find(function (x) { return x.id === id; }); if (!z) return;
-  var teamOpts = Object.keys(META.teams).map(function (k) { return '<option value="' + k + '"' + (k === z.team_code ? ' selected' : '') + '>' + esc(META.teams[k]) + '</option>'; }).join('');
-  editModal('Edit zone',
-    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(z.name) + '"></div>' +
-    '<div class="fld"><label for="em_team">Team</label><select id="em_team">' + teamOpts + '</select></div>',
-    function () {
-      var name = gv('em_name'); if (!name) { toast('Zone name is required'); return; }
-      api('PUT', '/admin/zones/' + id, { name: name, team_code: document.getElementById('em_team').value })
-        .then(function () { closeModal2(); toast('Zone updated'); loadAdminSection('geo'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
-}
 function adminCreateMandal() {
   var name = gv('geo_mandal_name'), did = document.getElementById('geo_mandal_district').value, zid = document.getElementById('geo_mandal_zone').value;
   if (!name || !did) return toast('Mandal name and district are required');
@@ -1245,63 +2178,32 @@ function adminToggleMandal(id, active) {
   api('PUT', '/admin/mandals/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('geo'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
-function adminEditMandal(id) {
-  var m = ADMIN_MANDALS.find(function (x) { return x.id === id; }); if (!m) return;
-  var distOpts = ADMIN_DISTRICTS.filter(function (d) { return d.is_active; }).map(function (d) { return '<option value="' + d.id + '"' + (d.id === m.district_id ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('');
-  var zoneOpts = '<option value="">No zone</option>' + ADMIN_ZONES.filter(function (z) { return z.is_active; }).map(function (z) { return '<option value="' + z.id + '"' + (z.id === m.zone_id ? ' selected' : '') + '>' + esc(z.name) + '</option>'; }).join('');
-  editModal('Edit mandal',
-    '<div class="fld"><label for="em_name">Name</label><input id="em_name" value="' + esc(m.name) + '"></div>' +
-    '<div class="fld"><label for="em_district">District</label><select id="em_district">' + distOpts + '</select></div>' +
-    '<div class="fld"><label for="em_zone">Zone (optional)</label><select id="em_zone">' + zoneOpts + '</select></div>',
-    function () {
-      var name = gv('em_name'), did = document.getElementById('em_district').value;
-      if (!name || !did) { toast('Mandal name and district are required'); return; }
-      var zid = document.getElementById('em_zone').value;
-      // Clear-sentinel convention (see crud_geo.update_mandal): 0 clears
-      // zone_id, omitted/None leaves it untouched - always send a real number.
-      api('PUT', '/admin/mandals/' + id, { name: name, district_id: +did, zone_id: zid ? +zid : 0 })
-        .then(function () { closeModal2(); toast('Mandal updated'); loadAdminSection('geo'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
-}
 
 function viewAdminVehicles() {
   var rows = ADMIN_VEHICLES.map(function (v) {
-    var mandal = ADMIN_MANDALS.find(function (x) { return x.id === v.last_mandal_id; });
     return '<tr><td><b>' + esc(v.registration_no) + '</b></td>' +
-      '<td>' + esc(mandal ? mandal.name : '—') + '</td>' +
+      '<td><span class="pill ' + (v.vehicle_type === 'AMBULANCE' ? 'p-crit' : 'p-mut') + '">' + esc(v.vehicle_type || 'MMU') + '</span></td>' +
       '<td>' + (v.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
-      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminEditVehicle(' + v.id + ')">Edit</button>' +
-      '<button class="btn ' + (v.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleVehicle(' + v.id + ',' + (!v.is_active) + ')">' + (v.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+      '<td><button class="btn ' + (v.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleVehicle(' + v.id + ',' + (!v.is_active) + ')">' + (v.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
-  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Vehicles</h4>' +
-    '<div class="muted" style="margin-bottom:10px">A registry entry only tracks the registration number - MMU vehicles move between Mandals, so location is captured fresh on each ticket and never stored here. "Last known Mandal" is an optional administrative note, not the routing source.</div>' +
-    '<div style="overflow-x:auto"><table><thead><tr><th>Registration no.</th><th>Last known Mandal</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
-    '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add vehicle</h4><div class="grid3">' +
+  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Vehicles &amp; Ambulances</h4>' +
+    '<div class="muted" style="margin-bottom:10px">Manage mobile healthcare units (MMU) and emergency ambulances (108).</div>' +
+    '<div style="overflow-x:auto"><table><thead><tr><th>Registration no.</th><th>Type</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+    '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add vehicle / ambulance</h4><div class="grid3">' +
     '<div class="fld"><label>Registration number</label><input id="veh_reg" placeholder="AP39UL4276"></div>' +
+    '<div class="fld"><label>Vehicle Type</label><select id="veh_type"><option value="MMU">MMU (Mobile Medical Unit)</option><option value="AMBULANCE">Ambulance (108 Emergency)</option></select></div>' +
     '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateVehicle()">Add vehicle</button></div>' +
     '</div></div>';
 }
 function adminCreateVehicle() {
   var reg = gv('veh_reg'); if (!reg) return toast('Registration number is required');
-  api('POST', '/admin/vehicles', { registration_no: reg }).then(function () { toast('Vehicle added'); loadAdminSection('vehicles'); })
+  var vtype = document.getElementById('veh_type') ? document.getElementById('veh_type').value : 'MMU';
+  api('POST', '/admin/vehicles', { registration_no: reg, vehicle_type: vtype }).then(function () { toast('Vehicle added'); loadAdminSection('vehicles'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminToggleVehicle(id, active) {
   api('PUT', '/admin/vehicles/' + id, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('vehicles'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-}
-function adminEditVehicle(id) {
-  var v = ADMIN_VEHICLES.find(function (x) { return x.id === id; }); if (!v) return;
-  var mandOpts = '<option value="">No mandal</option>' + ADMIN_MANDALS.filter(function (m) { return m.is_active; }).map(function (m) { return '<option value="' + m.id + '"' + (m.id === v.last_mandal_id ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('');
-  editModal('Edit vehicle — ' + v.registration_no,
-    '<div class="fld"><label for="em_mandal">Last known Mandal</label><select id="em_mandal">' + mandOpts + '</select></div>',
-    function () {
-      var mid = document.getElementById('em_mandal').value;
-      api('PUT', '/admin/vehicles/' + id, { last_mandal_id: mid ? +mid : 0 })
-        .then(function () { closeModal2(); toast('Vehicle updated'); loadAdminSection('vehicles'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
 }
 
 function viewAdminReasons() {
@@ -1310,18 +2212,20 @@ function viewAdminReasons() {
   var catLabel = function (code) { var c = ADMIN_CATEGORIES.find(function (x) { return x.code === code; }); return c ? c.label : code; };
   var rows = ADMIN_REASONS.map(function (r) {
     return '<tr><td><b>' + esc(r.code) + '</b></td><td>' + esc(r.label) + '</td><td>' + esc(catLabel(r.category_code)) + '</td>' +
+      '<td><span class="pill ' + (r.role_visibility === 'LT_ONLY' ? 'p-crit' : 'p-mut') + '">' + esc(r.role_visibility || 'ALL') + '</span></td>' +
       '<td>' + (r.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
       '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminRenameReason(\'' + r.code + '\')">Rename</button>' +
       '<button class="btn ' + (r.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleReason(\'' + r.code + '\',' + (!r.is_active) + ')">' + (r.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
-  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">LT Reasons</h4>' +
-    '<div class="muted" style="margin-bottom:10px">The tagged reasons an LT picks from when reporting an issue on a category flagged "Visible to LT" (see Categories tab) - keep labels short and plain-language, since field staff pick from these directly.</div>' +
-    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Label</th><th>Issue type</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Reason Master (LT &amp; General)</h4>' +
+    '<div class="muted" style="margin-bottom:10px">Manage diagnostic reasons and fault classifications with role-based visibility.</div>' +
+    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Label</th><th>Issue type</th><th>Visibility</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
     '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add reason</h4>' +
     (ltCats.length ? ('<div class="grid3">' +
       '<div class="fld"><label>Code</label><input id="ar_code" placeholder="NO_POWER"></div>' +
       '<div class="fld"><label>Label (shown to the LT)</label><input id="ar_label" placeholder="No power / won\'t switch on"></div>' +
       '<div class="fld"><label>Issue type</label><select id="ar_category">' + catOpts + '</select></div>' +
+      '<div class="fld"><label>Visibility</label><select id="ar_vis"><option value="LT_ONLY">LT Only (Diagnostic Portal)</option><option value="ALL">All Roles</option></select></div>' +
       '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateReason()">Add reason</button></div>' +
       '</div>') : '<div class="muted">No categories are flagged "Visible to LT" yet - flag one on the Categories tab first.</div>') +
     '</div>';
@@ -1332,19 +2236,16 @@ function adminAddReason() {
 }
 function adminCreateReason() {
   var code = gv('ar_code'), label = gv('ar_label'), cat = document.getElementById('ar_category').value;
+  var vis = document.getElementById('ar_vis') ? document.getElementById('ar_vis').value : 'ALL';
   if (!code || !label) return toast('Code and label are required');
-  api('POST', '/admin/reasons', { code: code, category_code: cat, label: label }).then(function () { toast('Reason added'); loadAdminSection('reasons'); })
+  api('POST', '/admin/reasons', { code: code, category_code: cat, label: label, role_visibility: vis, visible_to_lt: vis === 'LT_ONLY' || vis === 'ALL' }).then(function () { toast('Reason added'); loadAdminSection('reasons'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminRenameReason(code) {
   var r = ADMIN_REASONS.find(function (x) { return x.code === code; });
-  editModal('Rename reason',
-    '<div class="fld"><label for="em_label">Label</label><input id="em_label" value="' + esc(r ? r.label : '') + '"></div>',
-    function () {
-      var label = gv('em_label'); if (!label) { toast('Label is required'); return; }
-      api('PUT', '/admin/reasons/' + code, { label: label }).then(function () { closeModal2(); toast('Renamed'); loadAdminSection('reasons'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
+  var label = prompt('New label:', r ? r.label : ''); if (!label) return;
+  api('PUT', '/admin/reasons/' + code, { label: label }).then(function () { toast('Renamed'); loadAdminSection('reasons'); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminToggleReason(code, active) {
   api('PUT', '/admin/reasons/' + code, { is_active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('reasons'); })
@@ -1429,7 +2330,6 @@ function searchAdminUsers() {
 }
 
 function viewAdminUsers() {
-  var roleOpts = function (sel) { return ADMIN_ROLES.map(function (r) { return '<option value="' + r + '"' + (r === sel ? ' selected' : '') + '>' + esc(roleLabel(r)) + '</option>'; }).join(''); };
   var mgrName = function (id) { var u = ADMIN_USERS.find(function (x) { return x.id === id; }); return u ? u.name : ''; };
   var distName = function (id) { var d = ADMIN_DISTRICTS.find(function (x) { return x.id === id; }); return d ? d.name : ''; };
   var mandName = function (id) { var m = ADMIN_MANDALS.find(function (x) { return x.id === id; }); return m ? m.name : ''; };
@@ -1442,50 +2342,231 @@ function viewAdminUsers() {
     else loc = '—';
     var dispatchLabel = u.is_team_manager ? (u.district_id ? ('Local Team Lead · ' + esc(distName(u.district_id) || '?')) : 'Team Executive') : '';
     return '<tr><td><b>' + esc(u.username) + '</b></td><td>' + esc(u.name) + '</td>' +
-      '<td><select id="au_role_' + u.id + '">' + roleOpts(u.role) + '</select> <button class="btn o sm" onclick="adminChangeRole(' + u.id + ')">Apply</button></td>' +
+      '<td><span class="pill p-mut">' + esc(roleLabel(u.role)) + '</span></td>' +
       '<td>' + esc(u.hr_emp_code || '—') + '</td>' +
       '<td>' + esc(u.reporting_manager_id ? mgrName(u.reporting_manager_id) : '—') + '</td>' +
-      '<td><button class="btn ' + (u.is_team_manager ? 'g' : 'o') + ' sm" onclick="adminToggleTeamManager(' + u.id + ',' + (!u.is_team_manager) + ')">' + (u.is_team_manager ? 'Remove' : 'Make executive') + '</button>' +
-      (dispatchLabel ? (' <span class="pill p-mut">' + dispatchLabel + '</span>') : '') + '</td>' +
-      '<td>' + esc(loc) + (!isOrgWide(u.role) ? (' <button class="btn o sm" onclick="adminEditUserLocation(' + u.id + ')">Edit</button>') : '') + '</td>' +
+      '<td>' + (dispatchLabel ? ('<span class="pill p-ok">' + dispatchLabel + '</span>') : '<span class="muted">—</span>') + '</td>' +
+      '<td>' + esc(loc) + '</td>' +
       '<td>' + (u.active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
-      '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminResetPassword(' + u.id + ')">Reset password</button>' +
-      '<button class="btn ' + (u.active ? 'r' : 'g') + ' sm" onclick="adminToggleUser(' + u.id + ',' + (!u.active) + ')">' + (u.active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
+      '<td style="display:flex;gap:6px">' +
+      '<button class="btn o sm" onclick="openEditUserModal(' + u.id + ')">Edit</button>' +
+      '<button class="btn ' + (u.active ? 'r' : 'g') + ' sm" onclick="adminToggleUser(' + u.id + ',' + (!u.active) + ')">' + (u.active ? 'Deactivate' : 'Activate') + '</button>' +
+      '</td></tr>';
   }).join('');
+  var roleOpts = function (sel) { return ADMIN_ROLES.map(function (r) { return '<option value="' + r + '"' + (r === sel ? ' selected' : '') + '>' + esc(roleLabel(r)) + '</option>'; }).join(''); };
   var mgrOpts = '<option value="">No reporting manager</option>' + ADMIN_USERS.filter(function (u) { return u.active; }).map(function (u) { return '<option value="' + u.id + '">' + esc(u.name) + ' (' + esc(u.username) + ')</option>'; }).join('');
   var distOpts = '<option value="">No district</option>' + ADMIN_DISTRICTS.filter(function (d) { return d.is_active; }).map(function (d) { return '<option value="' + d.id + '">' + esc(d.name) + '</option>'; }).join('');
   var mandOpts = '<option value="">No mandal</option>' + ADMIN_MANDALS.filter(function (m) { return m.is_active; }).map(function (m) { return '<option value="' + m.id + '">' + esc(m.name) + '</option>'; }).join('');
   var vehOpts = '<option value="">No vehicle</option>' + ADMIN_VEHICLES.filter(function (v) { return v.is_active; }).map(function (v) { return '<option value="' + v.id + '">' + esc(v.registration_no) + '</option>'; }).join('');
-    return '<div class="card" style="margin-bottom:14px">' +
-      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
-        '<h4 style="font-size:14px;margin:0">Users</h4>' +
-        '<div style="display:flex;gap:6px">' +
-          '<input type="text" id="au_search" value="' + esc(ADMIN_USERS_Q) + '" placeholder="Search users..." onkeydown="if(event.key===\'Enter\') searchAdminUsers()">' +
-          '<button class="btn sm" onclick="searchAdminUsers()">Search</button>' +
-        '</div>' +
+  return '<div class="card" style="margin-bottom:14px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+      '<h4 style="font-size:14px;margin:0">Users</h4>' +
+      '<div style="display:flex;gap:6px">' +
+        '<input type="text" id="au_search" value="' + esc(ADMIN_USERS_Q) + '" placeholder="Search users..." onkeydown="if(event.key===\'Enter\') searchAdminUsers()">' +
+        '<button class="btn sm" onclick="searchAdminUsers()">Search</button>' +
       '</div>' +
-      '<div style="overflow-x:auto"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>HR code</th><th>Reports to</th><th>Dispatch</th><th>Location</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
-      '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add user</h4><div class="grid3">' +
-    '<div class="fld"><label>Username</label><input id="au_uname" placeholder="tech6"></div>' +
-    '<div class="fld"><label>Name</label><input id="au_name"></div>' +
-    '<div class="fld"><label>Role</label><select id="au_new_role">' + roleOpts() + '</select></div>' +
-    '<div class="fld"><label>Phone</label><input id="au_phone"></div>' +
-    '<div class="fld"><label>Temporary password</label><input id="au_pw" placeholder="min 8 characters"></div>' +
-    '<div class="fld"><label>HR employee code</label><input id="au_hr_code" placeholder="EMP1234"></div>' +
-    '<div class="fld"><label>Reporting manager</label><select id="au_report_to">' + mgrOpts + '</select></div>' +
-    '<div class="fld" style="display:flex;align-items:center;gap:8px"><input type="checkbox" id="au_is_manager" style="width:auto"> <label style="margin:0;text-transform:none;font-size:13px;font-weight:600;color:var(--ink2)">Team Executive for this role</label></div>' +
     '</div>' +
-    '<div class="muted" style="margin:4px 0 10px">Location profile — for an LT this auto-fills their self-service portal (never re-asked); for a Team Executive, setting a District turns them into that district\'s Local Team Lead once the Global Team Executive enables Local Team Lead routing (SLA &amp; TAT tab) - leave it blank to keep them statewide.</div>' +
+    '<div style="overflow-x:auto"><table><thead><tr><th>Username</th><th>Name</th><th>Role</th><th>HR code</th><th>Reports to</th><th>Dispatch / Lead</th><th>Location</th><th>Status</th><th>Actions</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+    '<div class="card"><h4 style="margin-bottom:6px;font-size:14px">Add New User</h4>' +
+    '<div id="au_dynamic_badge" class="dynamic-role-card"></div>' +
     '<div class="grid3">' +
-    '<div class="fld"><label>District</label><select id="au_district">' + distOpts + '</select></div>' +
-    '<div class="fld"><label>Mandal (LT only)</label><select id="au_mandal">' + mandOpts + '</select></div>' +
-    '<div class="fld"><label>Vehicle (LT only)</label><select id="au_vehicle">' + vehOpts + '</select></div>' +
-    '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateUser()">Add user</button></div>' +
-    '</div></div>';
+    '<div class="fld"><label>Username *</label><input id="au_uname" placeholder="e.g. tech6"></div>' +
+    '<div class="fld"><label>Full Name *</label><input id="au_name" placeholder="Full name"></div>' +
+    '<div class="fld"><label>Department / Role *</label><select id="au_new_role" onchange="syncDynamicUserForm(\'au\')">' + roleOpts() + '</select></div>' +
+    '<div class="fld"><label>Phone / Contact</label><input id="au_phone" placeholder="10-digit mobile"></div>' +
+    '<div class="fld"><label>Temporary Password *</label><input id="au_pw" type="password" placeholder="min 8 characters"></div>' +
+    '<div class="fld"><label>HR Employee Code</label><input id="au_hr_code" placeholder="e.g. EMP1234"></div>' +
+    '<div class="fld"><label>Reporting Manager</label><select id="au_report_to">' + mgrOpts + '</select></div>' +
+    '</div>' +
+    '<input type="hidden" id="au_is_manager" value="0">' +
+    '<div class="leadership-group" id="au_leadership_group">' +
+      '<div class="leadership-title">Leadership &amp; Dispatch Role (Team Executive vs Local Team Lead)</div>' +
+      '<div class="leadership-options">' +
+        '<label class="leadership-opt selected" id="au_opt_eng_label" onclick="setLeadershipMode(\'au\', \'eng\')">' +
+          '<div><div class="leadership-opt-title">👤 Field Engineer</div><div class="leadership-opt-sub">Standard technician for maintenance &amp; repairs</div></div>' +
+          '<input type="radio" name="au_leadership_mode" id="au_mode_eng" value="eng" checked>' +
+        '</label>' +
+        '<label class="leadership-opt" id="au_opt_lead_label" onclick="setLeadershipMode(\'au\', \'lead\')">' +
+          '<div><div class="leadership-opt-title">🟢 Local Team Lead</div><div class="leadership-opt-sub">District ground supervisor (Dispatches local MMU tickets)</div></div>' +
+          '<input type="radio" name="au_leadership_mode" id="au_mode_lead" value="lead">' +
+        '</label>' +
+        '<label class="leadership-opt" id="au_opt_exec_label" onclick="setLeadershipMode(\'au\', \'exec\')">' +
+          '<div><div class="leadership-opt-title">🟣 Team Executive</div><div class="leadership-opt-sub">Statewide department head (Oversees all 26 districts)</div></div>' +
+          '<input type="radio" name="au_leadership_mode" id="au_mode_exec" value="exec">' +
+        '</label>' +
+      '</div>' +
+    '</div>' +
+    '<div id="au_location_section">' +
+      '<div style="font-weight:700;font-size:13px;margin:12px 0 6px;color:var(--ink)" id="au_loc_title">Location &amp; District Assignment</div>' +
+      '<div class="grid3">' +
+      '<div class="fld" id="au_district_wrap"><label id="au_dist_label">District</label><select id="au_district" onchange="syncDynamicUserDistrict(\'au\')">' + distOpts + '</select></div>' +
+      '<div class="fld" id="au_mandal_wrap"><label>Mandal (LT Only)</label><select id="au_mandal">' + mandOpts + '</select></div>' +
+      '<div class="fld" id="au_vehicle_wrap"><label>Vehicle (LT Only)</label><select id="au_vehicle">' + vehOpts + '</select></div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn" onclick="adminCreateUser()">Create User Account</button></div>' +
+    '</div>';
 }
+
+function setLeadershipMode(prefix, mode) {
+  var isMgrEl = document.getElementById(prefix + '_is_manager');
+  var distEl = document.getElementById(prefix + '_district');
+  
+  if (isMgrEl) {
+    if (isMgrEl.type === 'checkbox') isMgrEl.checked = (mode === 'exec' || mode === 'lead');
+    else isMgrEl.value = (mode === 'exec' || mode === 'lead') ? '1' : '0';
+  }
+  if (mode === 'exec') {
+    if (distEl) distEl.value = '';
+  }
+  
+  var rEng = document.getElementById(prefix + '_mode_eng');
+  var rLead = document.getElementById(prefix + '_mode_lead');
+  var rExec = document.getElementById(prefix + '_mode_exec');
+  if (rEng) rEng.checked = (mode === 'eng');
+  if (rLead) rLead.checked = (mode === 'lead');
+  if (rExec) rExec.checked = (mode === 'exec');
+
+  var lEng = document.getElementById(prefix + '_opt_eng_label');
+  var lLead = document.getElementById(prefix + '_opt_lead_label');
+  var lExec = document.getElementById(prefix + '_opt_exec_label');
+  if (lEng) lEng.classList.toggle('selected', mode === 'eng');
+  if (lLead) lLead.classList.toggle('selected', mode === 'lead');
+  if (lExec) lExec.classList.toggle('selected', mode === 'exec');
+
+  syncDynamicUserForm(prefix);
+}
+
+function syncDynamicUserForm(prefix) {
+  var roleEl = document.getElementById(prefix === 'au' ? 'au_new_role' : 'medit_role');
+  var isMgrEl = document.getElementById(prefix + '_is_manager');
+  var distEl = document.getElementById(prefix + '_district');
+  var mandWrap = document.getElementById(prefix + '_mandal_wrap');
+  var vehWrap = document.getElementById(prefix + '_vehicle_wrap');
+  var distWrap = document.getElementById(prefix + '_district_wrap');
+  var distLabel = document.getElementById(prefix + '_dist_label');
+  var leadGroup = document.getElementById(prefix + '_leadership_group');
+  var badgeEl = document.getElementById(prefix + '_dynamic_badge');
+
+  if (!roleEl) return;
+  var role = roleEl.value;
+  var isMgr = isMgrEl ? (isMgrEl.type === 'checkbox' ? isMgrEl.checked : isMgrEl.value === '1') : false;
+  var distId = distEl ? distEl.value : '';
+  var distName = distId ? ((ADMIN_DISTRICTS.find(function (d) { return String(d.id) === String(distId); }) || {}).name || '') : '';
+  var roleName = roleLabel(role);
+
+  var isLT = (role === 'LT');
+  var isOrgWide = (role === 'CC_MANAGER' || role === 'CALL_TAKER');
+
+  // Leadership selector visibility
+  if (leadGroup) {
+    leadGroup.classList.toggle('hide', isOrgWide || isLT);
+  }
+
+  // 2. Location Fields visibility
+  if (mandWrap) mandWrap.classList.toggle('hide', !isLT);
+  if (vehWrap) vehWrap.classList.toggle('hide', !isLT);
+  if (distWrap) distWrap.classList.toggle('hide', isOrgWide);
+
+  // Dynamic label & helper for district
+  if (distLabel) {
+    if (isMgr && distId) distLabel.innerHTML = 'Assigned District (Supervised by this Lead) *';
+    else if (isMgr) distLabel.innerHTML = 'Assigned District (Select for Local Lead, Leave Blank for Statewide)';
+    else distLabel.innerHTML = 'District (Optional)';
+  }
+
+  // 3. Dynamic Computed Badge & Helper Banner
+  if (badgeEl) {
+    var cardClass = 'dynamic-role-card';
+    var badgeHtml = '';
+    var titleHtml = '';
+    var descHtml = '';
+
+    if (role === 'CC_MANAGER') {
+      cardClass += ' global-exec';
+      badgeHtml = '<span class="pill pill-global">👑 Global Command Executive</span>';
+      titleHtml = 'Global Command Center Administrator';
+      descHtml = 'Has statewide supervisory access across all 26 districts, departments, Daily Monitoring KPI dashboard, and master settings.';
+    } else if (role === 'CALL_TAKER') {
+      cardClass += ' global-exec';
+      badgeHtml = '<span class="pill pill-global">📞 Central Call Taker</span>';
+      titleHtml = '104 Inbound Breakdown Agent';
+      descHtml = 'Handles incoming breakdown calls from MMU doctors and field staff, registering and auto-routing emergency tickets.';
+    } else if (isLT) {
+      cardClass += ' lt-tech';
+      badgeHtml = '<span class="pill pill-eng">🔬 Field Lab Technician</span>';
+      titleHtml = 'MMU Diagnostics Operator' + (distName ? (' (' + esc(distName) + ' District)') : '');
+      descHtml = 'Operates mobile diagnostic analyzers. Setting District, Mandal, and MMU Vehicle pre-fills their self-service incident reporting portal.';
+    } else {
+      // Departmental Engineer / Team Lead / Team Executive
+      if (isMgr) {
+        if (distId) {
+          cardClass += ' local-lead';
+          badgeHtml = '<span class="pill pill-lead">🟢 Local Team Lead · ' + esc(distName) + '</span>';
+          titleHtml = esc(distName) + ' District ' + esc(roleName) + ' Lead';
+          descHtml = 'Ground supervisor for <b>' + esc(distName) + ' District</b>. Receives 80% SLA alerts for ' + esc(distName) + ' MMUs and coordinates local ' + esc(roleName) + ' engineers in this district.';
+        } else {
+          cardClass += ' statewide-exec';
+          badgeHtml = '<span class="pill pill-exec">🟣 Statewide Team Executive</span>';
+          titleHtml = 'Statewide ' + esc(roleName) + ' Executive';
+          descHtml = 'Statewide Head overseeing the entire <b>' + esc(roleName) + ' department across all 26 districts</b> in Andhra Pradesh. Receives statewide 80% SLA warnings and delegates tickets statewide.';
+        }
+      } else {
+        cardClass += ' standard-eng';
+        if (distId) {
+          badgeHtml = '<span class="pill pill-eng">👤 Field Engineer · ' + esc(distName) + '</span>';
+          titleHtml = esc(roleName) + ' (' + esc(distName) + ' District)';
+          descHtml = 'Field technician assigned to resolve equipment and diagnostic issues in ' + esc(distName) + ' district.';
+        } else {
+          badgeHtml = '<span class="pill pill-eng">👤 Statewide Field Engineer</span>';
+          titleHtml = 'Statewide ' + esc(roleName);
+          descHtml = 'Field engineer available for statewide assignment and mobile diagnostic support across Andhra Pradesh.';
+        }
+      }
+    }
+
+    badgeEl.className = cardClass;
+    badgeEl.innerHTML = '<div class="dynamic-role-header"><div class="dynamic-role-title">' + titleHtml + '</div>' + badgeHtml + '</div>' +
+      '<div class="dynamic-role-desc">' + descHtml + '</div>';
+  }
+}
+
+function syncDynamicUserDistrict(prefix) {
+  var distEl = document.getElementById(prefix + '_district');
+  var msel = document.getElementById(prefix + '_mandal');
+  var did = distEl ? distEl.value : '';
+  if (msel) {
+    var filtered = ADMIN_MANDALS.filter(function (m) {
+      return m.is_active && (!did || m.district_id === +did);
+    });
+    msel.innerHTML = '<option value="">No mandal</option>' + filtered.map(function (m) {
+      return '<option value="' + m.id + '">' + esc(m.name) + '</option>';
+    }).join('');
+  }
+  
+  // Auto-switch radio button to 'lead' if district is chosen while is_manager is true
+  var isMgrEl = document.getElementById(prefix + '_is_manager');
+  var isMgr = isMgrEl ? (isMgrEl.type === 'checkbox' ? isMgrEl.checked : isMgrEl.value === '1') : false;
+  if (isMgr) {
+    var targetMode = did ? 'lead' : 'exec';
+    var rLead = document.getElementById(prefix + '_mode_lead');
+    var rExec = document.getElementById(prefix + '_mode_exec');
+    if (rLead) rLead.checked = (targetMode === 'lead');
+    if (rExec) rExec.checked = (targetMode === 'exec');
+    var lLead = document.getElementById(prefix + '_opt_lead_label');
+    var lExec = document.getElementById(prefix + '_opt_exec_label');
+    if (lLead) lLead.classList.toggle('selected', targetMode === 'lead');
+    if (lExec) lExec.classList.toggle('selected', targetMode === 'exec');
+  }
+
+  syncDynamicUserForm(prefix);
+}
+
 function adminCreateUser() {
   var username = gv('au_uname'), name = gv('au_name'), role = document.getElementById('au_new_role').value, phone = gv('au_phone'), pw = gv('au_pw'),
-    hrCode = gv('au_hr_code'), reportTo = document.getElementById('au_report_to').value, isManager = document.getElementById('au_is_manager').checked,
+    hrCode = gv('au_hr_code'), reportTo = document.getElementById('au_report_to').value,
+    isManagerVal = document.getElementById('au_is_manager').value,
+    isManager = isManagerVal === '1',
     districtId = document.getElementById('au_district').value, mandalId = document.getElementById('au_mandal').value, vehicleId = document.getElementById('au_vehicle').value;
   if (!username || !name || !pw) return toast('Username, name and password are required');
   api('POST', '/admin/users', {
@@ -1493,59 +2574,146 @@ function adminCreateUser() {
     hr_emp_code: hrCode, reporting_manager_id: reportTo ? +reportTo : null, is_team_manager: isManager,
     district_id: districtId ? +districtId : null, mandal_id: mandalId ? +mandalId : null, vehicle_id: vehicleId ? +vehicleId : null
   })
-    .then(function () { toast('User created'); loadAdminSection('users'); })
+    .then(function () { toast('User created successfully'); ADMIN_LOADED.users = false; loadAdminSection('users'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
-function adminEditUserLocation(id) {
-  var u = ADMIN_USERS.find(function (x) { return x.id === id; }); if (!u) return;
-  var isLt = u.role === 'LT';
-  var distOpts = '<option value="">No district</option>' + ADMIN_DISTRICTS.filter(function (d) { return d.is_active; })
-    .map(function (d) { return '<option value="' + d.id + '"' + (d.id === u.district_id ? ' selected' : '') + '>' + esc(d.name) + '</option>'; }).join('');
-  var fields = '<div class="fld"><label for="em_district">District</label><select id="em_district">' + distOpts + '</select></div>';
-  if (isLt) {
-    var mandOpts = '<option value="">No mandal</option>' + ADMIN_MANDALS.filter(function (m) { return m.is_active; })
-      .map(function (m) { return '<option value="' + m.id + '"' + (m.id === u.mandal_id ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('');
-    var vehOpts = '<option value="">No vehicle</option>' + ADMIN_VEHICLES.filter(function (v) { return v.is_active; })
-      .map(function (v) { return '<option value="' + v.id + '"' + (v.id === u.vehicle_id ? ' selected' : '') + '>' + esc(v.registration_no) + '</option>'; }).join('');
-    fields += '<div class="fld"><label for="em_mandal">Mandal</label><select id="em_mandal">' + mandOpts + '</select></div>' +
-      '<div class="fld"><label for="em_vehicle">Vehicle</label><select id="em_vehicle">' + vehOpts + '</select></div>';
+
+function openEditUserModal(id) {
+  var u = ADMIN_USERS.find(function (x) { return x.id === id; });
+  if (!u) return toast('User not found');
+
+  var currentMode = u.is_team_manager ? (u.district_id ? 'lead' : 'exec') : 'eng';
+
+  var roleOpts = ADMIN_ROLES.map(function (r) {
+    return '<option value="' + r + '"' + (r === u.role ? ' selected' : '') + '>' + esc(roleLabel(r)) + '</option>';
+  }).join('');
+
+  var mgrOpts = '<option value="">No reporting manager</option>' + ADMIN_USERS.filter(function (x) {
+    return x.active && x.id !== u.id;
+  }).map(function (x) {
+    return '<option value="' + x.id + '"' + (x.id === u.reporting_manager_id ? ' selected' : '') + '>' + esc(x.name) + ' (' + esc(x.username) + ')</option>';
+  }).join('');
+
+  var distOpts = '<option value="">No district</option>' + ADMIN_DISTRICTS.filter(function (d) {
+    return d.is_active;
+  }).map(function (d) {
+    return '<option value="' + d.id + '"' + (d.id === u.district_id ? ' selected' : '') + '>' + esc(d.name) + '</option>';
+  }).join('');
+
+  var mandOpts = '<option value="">No mandal</option>' + ADMIN_MANDALS.filter(function (m) {
+    return m.is_active && (!u.district_id || m.district_id === u.district_id);
+  }).map(function (m) {
+    return '<option value="' + m.id + '"' + (m.id === u.mandal_id ? ' selected' : '') + '>' + esc(m.name) + '</option>';
+  }).join('');
+
+  var vehOpts = '<option value="">No vehicle</option>' + ADMIN_VEHICLES.filter(function (v) {
+    return v.is_active;
+  }).map(function (v) {
+    return '<option value="' + v.id + '"' + (v.id === u.vehicle_id ? ' selected' : '') + '>' + esc(v.registration_no) + '</option>';
+  }).join('');
+
+  document.getElementById('modal').innerHTML = '<div class="ovl" onclick="if(event.target===this)closeModal()"><div class="sheet" style="max-width:760px">' +
+    '<div class="sh"><div><div style="font-size:18px;font-weight:800">Edit User Details</div>' +
+    '<div style="font-size:12.5px;opacity:.9;margin-top:2px">Username: <b>@' + esc(u.username) + '</b></div></div>' +
+    '<button class="x" onclick="closeModal()">&times;</button></div>' +
+    '<div class="sb">' +
+    '<div id="medit_dynamic_badge" class="dynamic-role-card"></div>' +
+    '<div class="grid2">' +
+      '<div class="fld"><label>Full Name *</label><input id="medit_name" value="' + esc(u.name || '') + '"></div>' +
+      '<div class="fld"><label>Department / Role *</label><select id="medit_role" onchange="syncDynamicUserForm(\'medit\')">' + roleOpts + '</select></div>' +
+      '<div class="fld"><label>Phone / Contact</label><input id="medit_phone" value="' + esc(u.phone || '') + '"></div>' +
+      '<div class="fld"><label>HR Employee Code</label><input id="medit_hr_code" value="' + esc(u.hr_emp_code || '') + '"></div>' +
+      '<div class="fld"><label>Reporting Manager</label><select id="medit_report_to">' + mgrOpts + '</select></div>' +
+      '<div class="fld"><label>Account Status</label><select id="medit_active"><option value="1"' + (u.active ? ' selected' : '') + '>Active</option><option value="0"' + (!u.active ? ' selected' : '') + '>Inactive</option></select></div>' +
+    '</div>' +
+    '<input type="hidden" id="medit_is_manager" value="' + (u.is_team_manager ? '1' : '0') + '">' +
+    '<div class="leadership-group" id="medit_leadership_group">' +
+      '<div class="leadership-title">Leadership &amp; Dispatch Role (Team Executive vs Local Team Lead)</div>' +
+      '<div class="leadership-options">' +
+        '<label class="leadership-opt ' + (currentMode === 'eng' ? 'selected' : '') + '" id="medit_opt_eng_label" onclick="setLeadershipMode(\'medit\', \'eng\')">' +
+          '<div><div class="leadership-opt-title">👤 Field Engineer</div><div class="leadership-opt-sub">Standard technician for maintenance &amp; repairs</div></div>' +
+          '<input type="radio" name="medit_leadership_mode" id="medit_mode_eng" value="eng" ' + (currentMode === 'eng' ? 'checked' : '') + '>' +
+        '</label>' +
+        '<label class="leadership-opt ' + (currentMode === 'lead' ? 'selected' : '') + '" id="medit_opt_lead_label" onclick="setLeadershipMode(\'medit\', \'lead\')">' +
+          '<div><div class="leadership-opt-title">🟢 Local Team Lead</div><div class="leadership-opt-sub">District ground supervisor (Dispatches local MMU tickets)</div></div>' +
+          '<input type="radio" name="medit_leadership_mode" id="medit_mode_lead" value="lead" ' + (currentMode === 'lead' ? 'checked' : '') + '>' +
+        '</label>' +
+        '<label class="leadership-opt ' + (currentMode === 'exec' ? 'selected' : '') + '" id="medit_opt_exec_label" onclick="setLeadershipMode(\'medit\', \'exec\')">' +
+          '<div><div class="leadership-opt-title">🟣 Team Executive</div><div class="leadership-opt-sub">Statewide department head (Oversees all 26 districts)</div></div>' +
+          '<input type="radio" name="medit_leadership_mode" id="medit_mode_exec" value="exec" ' + (currentMode === 'exec' ? 'checked' : '') + '>' +
+        '</label>' +
+      '</div>' +
+    '</div>' +
+    '<div id="medit_location_section">' +
+      '<div style="font-weight:700;font-size:13.5px;margin:12px 0 6px;color:var(--ink)" id="medit_loc_title">Location &amp; District Assignment</div>' +
+      '<div class="grid3">' +
+        '<div class="fld" id="medit_district_wrap"><label id="medit_dist_label">District</label><select id="medit_district" onchange="syncDynamicUserDistrict(\'medit\')">' + distOpts + '</select></div>' +
+        '<div class="fld" id="medit_mandal_wrap"><label>Mandal (LT Only)</label><select id="medit_mandal">' + mandOpts + '</select></div>' +
+        '<div class="fld" id="medit_vehicle_wrap"><label>Vehicle (LT Only)</label><select id="medit_vehicle">' + vehOpts + '</select></div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-weight:700;font-size:13.5px;margin-top:10px;margin-bottom:8px;color:var(--ink)">Reset Password (Optional)</div>' +
+    '<div class="fld"><label>New Password</label><input id="medit_pw" type="password" placeholder="Leave blank to keep current password"></div>' +
+    '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:20px;border-top:1px solid var(--line);padding-top:14px">' +
+      '<button class="btn o" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn" onclick="saveUserEdit(' + u.id + ')">Save Changes</button>' +
+    '</div>' +
+    '</div></div></div>';
+
+  setTimeout(function () { syncDynamicUserForm('medit'); }, 10);
+}
+
+function closeModal() {
+  var m = document.getElementById('modal');
+  if (m) m.innerHTML = '';
+}
+
+function saveUserEdit(id) {
+  var name = gv('medit_name'),
+      role = document.getElementById('medit_role').value,
+      phone = gv('medit_phone'),
+      hrCode = gv('medit_hr_code'),
+      reportTo = document.getElementById('medit_report_to').value,
+      active = document.getElementById('medit_active').value === '1',
+      isManagerVal = document.getElementById('medit_is_manager').value,
+      isManager = isManagerVal === '1',
+      districtId = document.getElementById('medit_district').value,
+      mandalId = document.getElementById('medit_mandal').value,
+      vehicleId = document.getElementById('medit_vehicle').value,
+      pw = gv('medit_pw');
+
+  if (!name) return toast('User name is required');
+
+  var payload = {
+    name: name,
+    role: role,
+    phone: phone,
+    hr_emp_code: hrCode,
+    reporting_manager_id: reportTo ? +reportTo : null,
+    active: active,
+    is_team_manager: isManager,
+    district_id: districtId ? +districtId : null,
+    mandal_id: mandalId ? +mandalId : null,
+    vehicle_id: vehicleId ? +vehicleId : null
+  };
+  if (pw) {
+    if (pw.length < 8) return toast('Password must be at least 8 characters');
+    payload.password = pw;
   }
-  editModal('Edit location — ' + u.name, fields, function () {
-    // Clear-sentinel convention (app/crud/crud_user.py's update_user): 0
-    // clears the field to NULL, None/omitted leaves it untouched - always
-    // send a real number, never null, or a cleared field silently no-ops.
-    var patch = { district_id: gv('em_district') ? +gv('em_district') : 0 };
-    if (isLt) {
-      patch.mandal_id = gv('em_mandal') ? +gv('em_mandal') : 0;
-      patch.vehicle_id = gv('em_vehicle') ? +gv('em_vehicle') : 0;
-    }
-    api('PUT', '/admin/users/' + id, patch)
-      .then(function () { closeModal2(); toast('Location updated'); loadAdminSection('users'); })
-      .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+
+  api('PUT', '/admin/users/' + id, payload).then(function () {
+    toast('User details updated successfully');
+    closeModal();
+    ADMIN_LOADED.users = false;
+    loadAdminSection('users');
+  }).catch(function (e) {
+    toast(typeof e === 'string' ? e : 'Failed to update user');
   });
 }
-function adminChangeRole(id) {
-  var role = document.getElementById('au_role_' + id).value;
-  api('PUT', '/admin/users/' + id, { role: role }).then(function () { toast('Role updated'); loadAdminSection('users'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-}
+
 function adminToggleUser(id, active) {
   api('PUT', '/admin/users/' + id, { active: active }).then(function () { toast(active ? 'Activated' : 'Deactivated'); loadAdminSection('users'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-}
-function adminToggleTeamManager(id, isManager) {
-  api('PUT', '/admin/users/' + id, { is_team_manager: isManager }).then(function () { toast(isManager ? 'Now a Team Executive' : 'Team Executive removed'); loadAdminSection('users'); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-}
-function adminResetPassword(id) {
-  editModal('Reset password',
-    '<div class="fld"><label for="em_pw">New temporary password (min 8 characters)</label><input id="em_pw" type="password"></div>',
-    function () {
-      var pw = gv('em_pw');
-      if (pw.length < 8) { toast('Password must be at least 8 characters'); return; }
-      api('PUT', '/admin/users/' + id, { password: pw }).then(function () { closeModal2(); toast('Password reset'); })
-        .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
-    });
 }
 
 function viewAdminAudit() {
@@ -1559,3 +2727,73 @@ function viewAdminAudit() {
 }
 
 if (TOK) { boot(); }
+window.addEventListener('hashchange', function () {
+  if (TOK) {
+    restoreState();
+    render();
+    if (TAB === 'queue') load(true);
+    else if (TAB === 'dash') load(true);
+    else if (TAB === 'mine') load(true);
+    else if (TAB === 'admin') loadAdminSection(ADMIN_TAB);
+    if (CURRENT_MODAL_TICKET_ID) openT(CURRENT_MODAL_TICKET_ID);
+  }
+});
+
+window.addEventListener('online', function () {
+  toast('🟢 Cellular signal / Internet connection restored');
+  syncLTOutbox(false);
+});
+window.addEventListener('offline', function () {
+  toast('⚠️ Offline / No cellular connection. Reports will save to Outbox.');
+});
+
+// Dismiss popovers, notifications, and mobile menu when clicking or tapping anywhere outside
+function handleOutsideDismiss(e) {
+  var target = e.target;
+  if (!target) return;
+
+  // 1. Close notifications if clicking outside #npanel and outside #bell
+  if (NOTIF_OPEN) {
+    var npanelEl = document.getElementById('npanel');
+    var bellEl = document.getElementById('bell');
+    var isInsideNpanel = npanelEl && npanelEl.contains(target);
+    var isInsideBell = bellEl && bellEl.contains(target);
+    if (!isInsideNpanel && !isInsideBell) {
+      closeNotifs();
+    }
+  }
+
+  // 2. Close mobile sidebar if clicking outside #sidebar and outside #nav_toggle
+  var sb = document.getElementById('sidebar');
+  if (sb && sb.classList.contains('show')) {
+    var navToggleEl = document.getElementById('nav_toggle');
+    var isInsideSidebar = sb.contains(target);
+    var isInsideToggle = navToggleEl && navToggleEl.contains(target);
+    if (!isInsideSidebar && !isInsideToggle) {
+      closeSidebar();
+    }
+  }
+}
+
+document.addEventListener('click', handleOutsideDismiss, true);
+document.addEventListener('touchend', handleOutsideDismiss, { passive: true });
+
+// Close active overlays on Escape key
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' || e.keyCode === 27) {
+    if (NOTIF_OPEN) {
+      closeNotifs();
+      return;
+    }
+    var sb = document.getElementById('sidebar');
+    if (sb && sb.classList.contains('show')) {
+      closeSidebar();
+      return;
+    }
+    var m = document.getElementById('modal');
+    if (m && m.innerHTML.trim() !== '') {
+      closeModal();
+      return;
+    }
+  }
+});
