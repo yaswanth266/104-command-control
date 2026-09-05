@@ -1,6 +1,7 @@
 import json
 import datetime
 from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 from app.db.database import get_db
@@ -8,6 +9,7 @@ from app.api.deps import get_current_user
 from app.models.ticket import Ticket
 from app.crud.crud_ticket import create_ticket as insert_ticket, get_tat_map
 from app.crud.crud_event import create_event
+from app.crud.crud_attachment import create_attachment
 from app.crud.crud_category import resolve_team, get_category, get_category_map
 from app.crud.crud_team import get_team_map
 from app.crud.crud_user import get_user_by_username
@@ -18,6 +20,7 @@ from app.crud.crud_settings import get_sla_config
 from app.services.formatting import enrich
 from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_photo
+from app.services.photos import save_ticket_photo, save_ticket_attachment
 from app.services.webhooks import dispatch_ticket_event
 
 # Isolated from the main ticket router (tickets.py), same as intake.py is
@@ -42,11 +45,12 @@ def _parse_reason_codes(raw: str) -> list:
 @router.post("/tickets")
 def create_lt_ticket(
     category: str = Form(...),
-    reason_codes: str = Form(...),
+    reason_codes: str = Form(""),
     machine_id: Optional[int] = Form(None),
     priority: str = Form("P2"),
     problem: str = Form(""),
     photo: Optional[UploadFile] = File(None),
+    photos: Optional[List[UploadFile]] = File(None),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
@@ -80,7 +84,17 @@ def create_lt_ticket(
     if route is None:
         raise HTTPException(400, "Unknown issue category")
 
-    photo_path = save_ticket_photo(photo) if photo is not None else None
+    all_uploads = []
+    if photos:
+        for p in photos:
+            if p and p.filename:
+                all_uploads.append(p)
+    if photo and photo.filename and photo not in all_uploads:
+        all_uploads.insert(0, photo)
+
+    photo_path = None
+    if all_uploads:
+        photo_path = save_ticket_photo(all_uploads[0])
 
     vehicle = get_vehicle(db, lt_user.vehicle_id) if lt_user.vehicle_id else None
     district = get_district(db, lt_user.district_id)
@@ -110,6 +124,37 @@ def create_lt_ticket(
         created_by=current_user["username"],
         assigned_at=now,
     ))
+
+    # Record all uploaded images as permanent attachments
+    for idx, p in enumerate(all_uploads):
+        try:
+            if idx == 0 and photo_path:
+                create_attachment(
+                    db=db,
+                    ticket_id=db_ticket.id,
+                    filename=photo_path,
+                    original_name=p.filename,
+                    content_type=p.content_type or "image/jpeg",
+                    size_bytes=getattr(p, "size", 0) or 0,
+                    uploaded_by=current_user["username"],
+                    uploaded_by_role="LT",
+                    note=f"Initial field photo #{idx+1}"
+                )
+            else:
+                saved = save_ticket_attachment(p)
+                create_attachment(
+                    db=db,
+                    ticket_id=db_ticket.id,
+                    filename=saved["filename"],
+                    original_name=p.filename,
+                    content_type=p.content_type or "image/jpeg",
+                    size_bytes=saved["size_bytes"],
+                    uploaded_by=current_user["username"],
+                    uploaded_by_role="LT",
+                    note=f"Initial field photo #{idx+1}"
+                )
+        except Exception:
+            pass
 
     create_event(db, db_ticket.id, current_user, "CREATED",
                  f"Reported from the field by {current_user['name']}; classified {cat} -> {route['team']}"

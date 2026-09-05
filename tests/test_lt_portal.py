@@ -185,3 +185,32 @@ def test_photo_upload_accepts_jpeg(client):
     t = db.query(Ticket).filter(Ticket.id == tid).first()
     assert t.photo_path
     db.close()
+
+
+def test_multiple_photos_upload_accepts_and_creates_attachments(client):
+    from app.models.attachment import Attachment
+    fake_jpeg = ("photo1.jpg", io.BytesIO(b"\xff\xd8\xff" + b"1" * 100), "image/jpeg")
+    fake_png = ("photo2.png", io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"2" * 100), "image/png")
+    form = {
+        "category": LT_CATEGORY,
+        "reason_codes": "NO_POWER",
+        "priority": "P1",
+        "problem": "test with multiple photos",
+    }
+    files = [
+        ("photos", fake_jpeg),
+        ("photos", fake_png),
+    ]
+    r = client.post("/cccapi/lt/tickets", data=form, files=files, headers=LT)
+    assert r.status_code == 200, r.text
+    tid = r.json()["id"]
+    db = SessionLocal()
+    t = db.query(Ticket).filter(Ticket.id == tid).first()
+    assert t.photo_path is not None
+    atts = db.query(Attachment).filter(Attachment.ticket_id == tid).all()
+    assert len(atts) == 2
+    filenames = [a.original_name for a in atts]
+    assert "photo1.jpg" in filenames
+    assert "photo2.png" in filenames
+    db.close()
+

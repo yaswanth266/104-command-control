@@ -1,4 +1,4 @@
-var API = '/cccapi', TOK = sessionStorage.getItem('ccc_tok') || localStorage.getItem('ccc_tok') || '', ME = null, META = null, TAB = 'queue', ROWS = [], ROWTOTAL = 0, DASH = null,
+var API = '/cccapi', TOK = sessionStorage.getItem('ccc_tok') || localStorage.getItem('ccc_tok') || '', ME = null, META = null, TAB = 'queue', ROWS = [], ROWTOTAL = 0, DASH = null, LAST_DASH_STR = '',
   FILT = { status: '', scope: '', team: '', priority: '', category: '', mmu_vehicle: '', district: '', district_id: '', mandal_id: '', date_preset: '', date_from: '', date_to: '', time_from: '', time_to: '', shift: '', q: '', page: 1, page_size: 50, sort_by: 'created_at', sort_desc: true },
   NOTIFS = [], NOTIF_OPEN = false, POLL_TIMER = null, CLOCK_TIMER = null,
   ADMIN_TAB = 'teams', ADMIN_TEAMS = [], ADMIN_CATEGORIES = [], ADMIN_SLA = null, ADMIN_DISPATCH = null, ADMIN_USERS = [], ADMIN_USERS_Q = '', ADMIN_ROLES = [], ADMIN_AUDIT = [], ADMIN_LOADED = {},
@@ -734,7 +734,16 @@ function load(forced) {
       }
     });
   }
-  if (TAB === 'dash') { api('GET', '/dashboard').then(function (d) { DASH = d; render(); }); }
+  if (TAB === 'dash') {
+    api('GET', '/dashboard').then(function (d) {
+      var dStr = JSON.stringify(d);
+      if (forced || dStr !== LAST_DASH_STR) {
+        LAST_DASH_STR = dStr;
+        DASH = d;
+        render();
+      }
+    });
+  }
 }
 function setFilt(k, v) {
   TAB = 'queue';
@@ -924,9 +933,10 @@ function exportQueue() {
 function updateQueueTableOnly() {
   var tb = document.querySelector('#queue_table_wrap tbody');
   if (!tb) {
-    render();
+    if (TAB === 'queue') render();
     return;
   }
+  var newHTML = '';
   if (!ROWS.length) {
     var hasActiveFilters = FILT.q || FILT.team || FILT.district_id || FILT.date_from || FILT.date_to || FILT.date_preset;
     var emptyMsg = hasActiveFilters ?
@@ -937,9 +947,9 @@ function updateQueueTableOnly() {
         '<button class="btn sm" onclick="clearFilters()" style="padding:6px 18px">Clear All Filters</button>' +
       '</div>' :
       '<div class="empty" style="padding:30px">No tickets currently in this view.</div>';
-    tb.innerHTML = '<tr><td colspan="8">' + emptyMsg + '</td></tr>';
+    newHTML = '<tr><td colspan="8">' + emptyMsg + '</td></tr>';
   } else {
-    tb.innerHTML = ROWS.map(function (t) {
+    newHTML = ROWS.map(function (t) {
       var createdTime = t.created_at ? esc(t.created_at.replace('T', ' ').slice(0, 16)) : '—';
       return '<tr class="row" onclick="openT(' + t.id + ')">' +
         '<td><b>' + esc(t.ticket_no) + '</b>' + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '<div class="muted">' + esc(t.source) + '</div></td>' +
@@ -948,9 +958,12 @@ function updateQueueTableOnly() {
         '<td>' + esc(t.team_label || '') + '</td>' +
         '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
         '<td><div style="font-weight:600;font-size:12.5px;color:var(--ink)">' + createdTime + '</div><div class="muted" style="font-size:11px">Recorded</div></td>' +
-        '<td>' + tatPill(t) + '<div class="muted">' + esc(t.due_at || '') + '</div></td>' +
+        '<td>' + tatPill(t) + '<div class="muted" style="font-size:11px;margin-top:2px"><span style="opacity:0.75">Due:</span> ' + esc(t.due_at ? t.due_at.replace('T', ' ').slice(0, 16) : '—') + '</div></td>' +
         '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 110)) + '</td></tr>';
     }).join('');
+  }
+  if (tb.innerHTML !== newHTML) {
+    tb.innerHTML = newHTML;
   }
   var qb = document.getElementById('queue_total_badge');
   if (qb) qb.textContent = ROWTOTAL + ' ticket' + (ROWTOTAL === 1 ? '' : 's');
@@ -1090,7 +1103,7 @@ function viewQueue() {
         '<td>' + esc(t.team_label || '') + '</td>' +
         '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
         '<td><div style="font-weight:600;font-size:12.5px;color:var(--ink)">' + createdTime + '</div><div class="muted" style="font-size:11px">Recorded</div></td>' +
-        '<td>' + tatPill(t) + '<div class="muted">' + esc(t.due_at || '') + '</div></td>' +
+        '<td>' + tatPill(t) + '<div class="muted" style="font-size:11px;margin-top:2px"><span style="opacity:0.75">Due:</span> ' + esc(t.due_at ? t.due_at.replace('T', ' ').slice(0, 16) : '—') + '</div></td>' +
         '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 110)) + '</td></tr>';
     }).join('');
   }
@@ -1197,6 +1210,8 @@ function viewNew() {
         '<div class="fld"><label>Nature of the problem *</label><textarea id="f_prob" rows="3" placeholder="What exactly is happening?"></textarea></div>' +
         '<div class="fld"><label>Issue category *</label><select id="f_cat" onchange="previewRoute()">' + cats + '</select></div>' +
         '<div class="route" id="rpre" style="margin-top:10px"></div>' +
+        '<div class="fld" style="margin-top:14px"><label style="display:flex;justify-content:space-between;align-items:center"><span>Attach Images / Evidence (optional)</span><span class="muted" style="font-size:12px;font-weight:normal">Multiple files supported (images, PDFs)</span></label>' +
+        '<input type="file" id="f_photos" accept="image/*,.pdf,.doc,.docx" multiple onchange="previewNewTicketPhotos()" style="width:100%"><div id="f_photos_prev" class="photo-gallery"></div></div>' +
       '</div>' +
     '</div>' +
 
@@ -1306,11 +1321,52 @@ function equipmentSearchInput() {
     }).catch(function () { });
   }, 300);
 }
+window._NEW_TICKET_FILES = [];
+
+function previewNewTicketPhotos() {
+  var inp = document.getElementById('f_photos');
+  if (!inp || !inp.files) return;
+  Array.from(inp.files).forEach(function (f) {
+    if (!window._NEW_TICKET_FILES.some(function (x) { return x.name === f.name && x.size === f.size; })) {
+      window._NEW_TICKET_FILES.push(f);
+    }
+  });
+  renderNewTicketPhotosPreview();
+  inp.value = '';
+}
+
+function removeNewTicketPhoto(idx) {
+  window._NEW_TICKET_FILES.splice(idx, 1);
+  renderNewTicketPhotosPreview();
+}
+
+function renderNewTicketPhotosPreview() {
+  var prev = document.getElementById('f_photos_prev');
+  if (!prev) return;
+  if (!window._NEW_TICKET_FILES.length) {
+    prev.innerHTML = '';
+    return;
+  }
+  prev.innerHTML = window._NEW_TICKET_FILES.map(function (f, idx) {
+    var isImg = f.type.indexOf('image') === 0;
+    var iconOrImg = isImg ?
+      ('<img src="' + URL.createObjectURL(f) + '" alt="Preview">') :
+      ('<div style="width:98px;height:98px;display:flex;align-items:center;justify-content:center;font-size:32px;background:#f3f4f6;border-radius:8px">📄</div>');
+    return '<div class="photo-thumb-card">' +
+      iconOrImg +
+      '<span class="photo-size" title="' + esc(f.name) + '">' + esc(f.name) + ' (' + Math.round(f.size / 1024) + ' KB)</span>' +
+      '<button type="button" class="photo-remove-btn" onclick="removeNewTicketPhoto(' + idx + ')" title="Remove">&times;</button>' +
+    '</div>';
+  }).join('');
+}
+
 function createT() {
   var g = function (i) { var e = document.getElementById(i); return e ? e.value.trim() : ''; };
   if (!g('f_prob')) return toast('Nature of the problem is required');
   var districtId = g('f_district_id'), mandalId = g('f_mandal_id'), vehicleId = g('f_vehicle_id'), machineId = g('f_machine_id');
   var districtName = districtId ? ((NEW_DISTRICTS.find(function (d) { return String(d.id) === districtId; }) || {}).name || '') : '';
+  var filesToUpload = (window._NEW_TICKET_FILES || []).slice();
+
   api('POST', '/ticket', {
     mmu_vehicle: g('f_veh'), vehicle_id: vehicleId ? +vehicleId : null, district: districtName,
     district_id: districtId ? +districtId : null, mandal_id: mandalId ? +mandalId : null, machine_id: machineId ? +machineId : null,
@@ -1318,7 +1374,28 @@ function createT() {
     caller_phone: g('f_cph'), equipment: g('f_eq'), problem: g('f_prob'), error_code: g('f_err'), impact: g('f_imp'),
     category: g('f_cat'), priority: 'P1'
   })
-    .then(function (d) { toast('Ticket ' + d.ticket_no + ' created → ' + d.team + (d.vip ? ' (VIP Dispatch)' : '')); TAB = 'queue'; render(); load(); })
+    .then(function (d) {
+      window._NEW_TICKET_FILES = [];
+      if (filesToUpload.length > 0) {
+        toast('Ticket ' + d.ticket_no + ' created! Uploading ' + filesToUpload.length + ' image(s)…');
+        var uploads = filesToUpload.map(function (file) {
+          var fd = new FormData();
+          fd.append('file', file);
+          fd.append('note', 'Initial ticket creation image');
+          return apiForm('/tickets/' + d.id + '/attachments', fd);
+        });
+        Promise.all(uploads).then(function () {
+          toast('Ticket ' + d.ticket_no + ' created with ' + filesToUpload.length + ' attachment(s)');
+          TAB = 'queue'; render(); load(true);
+        }).catch(function () {
+          toast('Ticket created, but some attachments could not be uploaded');
+          TAB = 'queue'; render(); load(true);
+        });
+      } else {
+        toast('Ticket ' + d.ticket_no + ' created → ' + d.team + (d.vip ? ' (VIP Dispatch)' : ''));
+        TAB = 'queue'; render(); load();
+      }
+    })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 
@@ -1793,7 +1870,12 @@ function syncLTOutbox(manual) {
   if (item.machine_id) fd.append('machine_id', item.machine_id);
   fd.append('priority', item.priority);
   fd.append('problem', item.problem || '');
-  if (item.photo_data_url) {
+  if (item.photos && item.photos.length) {
+    item.photos.forEach(function (p) {
+      var blob = dataUrlToBlob(p.dataUrl || p.data_url);
+      if (blob) fd.append('photos', blob, p.name || 'field_photo.jpg');
+    });
+  } else if (item.photo_data_url) {
     var blob = dataUrlToBlob(item.photo_data_url);
     if (blob) fd.append('photo', blob, item.photo_name || 'field_photo.jpg');
   }
@@ -1851,17 +1933,65 @@ function restoreLTFormDraft() {
   } catch (e) {}
 }
 
+window._LT_PHOTOS = [];
+
 function ltPhotoPreview() {
-  var f = document.getElementById('lt_photo').files[0], prev = document.getElementById('lt_photo_prev');
-  if (!f) { prev.innerHTML = ''; return; }
-  prev.innerHTML = '<div class="muted" style="margin-top:6px">Optimizing photo for mobile upload…</div>';
-  compressImage(f, 1280, 0.75, function (compFile, dataUrl) {
-    window._LT_COMPRESSED_PHOTO = compFile;
-    window._LT_COMPRESSED_DATAURL = dataUrl;
-    var sizeKb = Math.round(compFile.size / 1024);
-    prev.innerHTML = '<img src="' + dataUrl + '" style="max-width:160px;max-height:160px;border-radius:10px;margin-top:8px;object-fit:cover">' +
-      '<div class="img-compress-tag">⚡ Optimized: ' + sizeKb + ' KB (Ready for low-signal upload)</div>';
+  var inp = document.getElementById('lt_photo');
+  if (!inp || !inp.files || !inp.files.length) return;
+  var prev = document.getElementById('lt_photo_prev');
+  if (!prev) return;
+
+  var newFiles = Array.from(inp.files);
+  if (!window._LT_PHOTOS) window._LT_PHOTOS = [];
+
+  var statusMsg = document.createElement('div');
+  statusMsg.className = 'muted';
+  statusMsg.style.marginTop = '6px';
+  statusMsg.id = 'lt_compress_status';
+  statusMsg.textContent = 'Optimizing ' + newFiles.length + ' photo(s) for mobile upload…';
+  prev.appendChild(statusMsg);
+
+  var completed = 0;
+  newFiles.forEach(function (f) {
+    compressImage(f, 1280, 0.75, function (compFile, dataUrl) {
+      var sizeKb = Math.round(compFile.size / 1024);
+      window._LT_PHOTOS.push({
+        file: compFile,
+        dataUrl: dataUrl,
+        name: f.name,
+        sizeKb: sizeKb
+      });
+      completed++;
+      if (completed === newFiles.length) {
+        renderLTPhotosPreview();
+      }
+    });
   });
+  inp.value = '';
+}
+
+function removeLTPhoto(idx) {
+  if (!window._LT_PHOTOS) return;
+  window._LT_PHOTOS.splice(idx, 1);
+  renderLTPhotosPreview();
+}
+
+function renderLTPhotosPreview() {
+  var prev = document.getElementById('lt_photo_prev');
+  if (!prev) return;
+  if (!window._LT_PHOTOS || !window._LT_PHOTOS.length) {
+    prev.innerHTML = '';
+    return;
+  }
+  var html = '';
+  window._LT_PHOTOS.forEach(function (p, idx) {
+    html += '<div class="photo-thumb-card">' +
+      '<img src="' + p.dataUrl + '" alt="Photo preview">' +
+      '<button type="button" class="photo-remove-btn" title="Remove image" onclick="removeLTPhoto(' + idx + ')">×</button>' +
+      '<div class="photo-size">⚡ ' + p.sizeKb + ' KB</div>' +
+    '</div>';
+  });
+  prev.innerHTML = html;
 }
 
 function viewLTReport() {
@@ -1881,7 +2011,7 @@ function viewLTReport() {
     '<div class="fld"><label>What kind of issue? *</label><select id="lt_cat" onchange="ltCategoryChanged(); saveLTFormDraft();"><option value="">Loading…</option></select></div>' +
     '<div class="fld"><label>What\'s wrong? (select all that apply) *</label><div id="lt_reasons_box" class="ltreasons"><div class="muted">Select an issue type first</div></div></div>' +
     '<div class="fld"><label>Machine (optional)</label><input id="lt_machine" list="lt_machineDL" placeholder="Start typing the machine name…" oninput="ltMachineSearchInput(); saveLTFormDraft();" autocomplete="off"><datalist id="lt_machineDL"></datalist><input type="hidden" id="lt_machine_id"></div>' +
-    '<div class="fld"><label>Add a photo (auto-compressed for rural network) (optional)</label><input type="file" id="lt_photo" accept="image/*" onchange="ltPhotoPreview()"><div id="lt_photo_prev"></div></div>' +
+    '<div class="fld"><label>Add photos / evidence (auto-compressed for rural network) (optional)</label><input type="file" id="lt_photo" accept="image/*" multiple onchange="ltPhotoPreview()"><div id="lt_photo_prev" class="photo-gallery"></div></div>' +
     '<div class="fld"><label>Anything else? (optional)</label><textarea id="lt_notes" rows="3" placeholder="Extra details, if any" oninput="saveLTFormDraft()"></textarea></div>' +
     '<div style="display:flex;gap:10px;margin-top:14px">' +
       '<button class="btn" style="min-width:180px" onclick="submitLTTicket()">Submit report</button>' +
@@ -1898,30 +2028,30 @@ function apiForm(p, fd) {
 }
 
 function submitLTTicket() {
-  var cat = gv('lt_cat') || document.getElementById('lt_cat').value;
+  var cat = gv('lt_cat') || (document.getElementById('lt_cat') ? document.getElementById('lt_cat').value : '');
   if (!cat) return toast('Select an issue type');
   if (!LT_SELECTED_REASONS.length) return toast('Select at least one reason');
   
   var mid = gv('lt_machine_id');
   var pri = 'P1';
   var problem = gv('lt_notes');
-  var photoFile = window._LT_COMPRESSED_PHOTO || (document.getElementById('lt_photo') ? document.getElementById('lt_photo').files[0] : null);
-  var photoDataUrl = window._LT_COMPRESSED_DATAURL || null;
+  var photos = (window._LT_PHOTOS && window._LT_PHOTOS.length) ? window._LT_PHOTOS : [];
 
   // If strictly offline, queue immediately without waiting for timeout
   if (!navigator.onLine) {
+    var outboxPhotos = photos.map(function (p) {
+      return { dataUrl: p.dataUrl, name: p.name || 'field_photo.jpg' };
+    });
     enqueueLTOutbox({
       category: cat,
       reason_codes: LT_SELECTED_REASONS,
       machine_id: mid || null,
       priority: pri,
       problem: problem,
-      photo_data_url: photoDataUrl,
-      photo_name: photoFile ? photoFile.name : null
+      photos: outboxPhotos
     });
     clearLTFormDraft();
-    window._LT_COMPRESSED_PHOTO = null;
-    window._LT_COMPRESSED_DATAURL = null;
+    window._LT_PHOTOS = [];
     toast('📡 Offline: Saved to Outbox! Will auto-upload when signal returns.');
     TAB = 'mine'; render(); load();
     return;
@@ -1934,29 +2064,31 @@ function submitLTTicket() {
   if (mid) fd.append('machine_id', mid);
   fd.append('priority', pri);
   fd.append('problem', problem);
-  if (photoFile) fd.append('photo', photoFile);
+  photos.forEach(function (p) {
+    fd.append('photos', p.file, p.name || 'field_photo.jpg');
+  });
 
   toast('📤 Uploading report…');
   apiForm('/lt/tickets', fd).then(function (d) {
     clearLTFormDraft();
-    window._LT_COMPRESSED_PHOTO = null;
-    window._LT_COMPRESSED_DATAURL = null;
+    window._LT_PHOTOS = [];
     toast('Reported! Ticket ' + d.ticket_no + ' sent to district team');
     TAB = 'mine'; render(); load();
   }).catch(function (e) {
     // On network failure or drop, save to outbox so nothing is lost
+    var outboxPhotos = photos.map(function (p) {
+      return { dataUrl: p.dataUrl, name: p.name || 'field_photo.jpg' };
+    });
     enqueueLTOutbox({
       category: cat,
       reason_codes: LT_SELECTED_REASONS,
       machine_id: mid || null,
       priority: pri,
       problem: problem,
-      photo_data_url: photoDataUrl,
-      photo_name: photoFile ? photoFile.name : null
+      photos: outboxPhotos
     });
     clearLTFormDraft();
-    window._LT_COMPRESSED_PHOTO = null;
-    window._LT_COMPRESSED_DATAURL = null;
+    window._LT_PHOTOS = [];
     toast('📡 Network dropped during upload. Saved to Outbox for auto-sync!');
     TAB = 'mine'; render(); load();
   });
