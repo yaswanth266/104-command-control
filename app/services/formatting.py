@@ -1,4 +1,22 @@
 import datetime
+from sqlalchemy import text
+
+def get_chronic_breakdowns_map(db):
+    """{mmu_vehicle: count} for vehicles with >= 3 breakdowns in the past 30
+    days - backs the chronic-equipment watchdog badge on tickets/queue and
+    the dashboard's watchdog table (see app/services/reporting.py)."""
+    try:
+        res = db.execute(text("""
+            SELECT mmu_vehicle, COUNT(*) AS c
+            FROM ccc_ticket
+            WHERE mmu_vehicle IS NOT NULL AND mmu_vehicle <> ''
+              AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+            GROUP BY mmu_vehicle
+            HAVING c >= 3
+        """)).fetchall()
+        return {str(row[0]): int(row[1]) for row in res}
+    except Exception:
+        return {}
 
 def sla_tier(mins_left, tat_mins, sla_cfg):
     """Single source of truth for SLA state, shared by the per-ticket pill,
@@ -14,11 +32,13 @@ def sla_tier(mins_left, tat_mins, sla_cfg):
         return "AT RISK"
     return "ON TRACK"
 
-def enrich(ticket, category_map, team_map, sla_cfg):
+def enrich(ticket, category_map, team_map, sla_cfg, chronic_map=None):
     """Attach live TAT state + display labels for serialization.
     category_map: crud_category.get_routing_map(db) shape ({code: {label,team,owner}}).
     team_map: {team_code: team_name}.
-    sla_cfg: crud_settings.get_sla_config(db) shape."""
+    sla_cfg: crud_settings.get_sla_config(db) shape.
+    chronic_map: optional get_chronic_breakdowns_map(db) shape - omitted by
+    callers that don't need the chronic-fault badge (exports, LT's own list)."""
     if not ticket:
         return ticket
 
@@ -43,6 +63,10 @@ def enrich(ticket, category_map, team_map, sla_cfg):
             pass
     elif t.get("status") == "CLOSED":
         t["tat_state"] = "BREACHED" if t.get("breached") else "MET"
+
+    veh = str(t.get("mmu_vehicle") or "")
+    t["is_chronic_fault"] = bool(chronic_map and veh and veh in chronic_map)
+    t["chronic_breakdown_count"] = chronic_map.get(veh, 0) if (chronic_map and veh) else 0
 
     t["category_label"] = category_map.get(t.get("category") or "", {}).get("label", t.get("category"))
     t["team_label"] = team_map.get(t.get("team") or "", t.get("team"))

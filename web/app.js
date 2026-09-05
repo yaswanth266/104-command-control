@@ -245,6 +245,81 @@ function roleLabel(r) {
     LT: 'Lab Technician'
   })[r] || r;
 }
+
+function openProfile() {
+  closeSidebar();
+  document.getElementById('modal').innerHTML = '<div class="ovl" onclick="if(event.target===this)closeModal()"><div class="sheet" style="max-width:520px">' +
+    '<div class="sh"><div style="font-size:18px;font-weight:800">My Profile</div><button class="x" onclick="closeModal()">&times;</button></div>' +
+    '<div class="sb" id="profile_body">Loading...</div>' +
+    '</div></div>';
+  api('GET', '/users/me').then(function (p) {
+    renderProfileModal(p);
+  }).catch(function (e) {
+    var b = document.getElementById('profile_body');
+    if (b) b.innerHTML = '<div class="err">' + esc(typeof e === 'string' ? e : (e.detail || 'Could not load profile')) + '</div>';
+  });
+}
+
+function renderProfileModal(p) {
+  var b = document.getElementById('profile_body');
+  if (!b) return;
+
+  var rows = [
+    ['Full Name', esc(p.name)],
+    ['Username', '@' + esc(p.username)],
+    ['Role', esc(roleLabel(p.role)) + (p.is_team_manager ? ' <span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:800;background:#F5F0FF;color:var(--pur)">TEAM MANAGER</span>' : '')],
+    ['Phone', esc(p.phone || '-')]
+  ];
+  if (p.hr_emp_code) rows.push(['HR Employee Code', esc(p.hr_emp_code)]);
+  if (p.team) rows.push(['Team', esc(p.team.name)]);
+  if (p.reporting_manager) rows.push(['Reports To', esc(p.reporting_manager.name) + ' (@' + esc(p.reporting_manager.username) + ')']);
+  if (p.district) rows.push(['District', esc(p.district.name)]);
+  if (p.mandal) rows.push(['Mandal', esc(p.mandal.name)]);
+  if (p.vehicle) rows.push(['Assigned Vehicle', esc(p.vehicle.registration_no)]);
+
+  var infoHtml = rows.map(function (r) {
+    return '<div style="display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)">' +
+      '<span style="opacity:.75">' + r[0] + '</span><span style="font-weight:600;text-align:right">' + r[1] + '</span></div>';
+  }).join('');
+
+  var routingNote = '';
+  if (p.role === 'LT') {
+    routingNote = '<div class="s" style="margin-top:10px">Your District, Mandal and Vehicle above are auto-attached to every ticket you raise from the field, and decide which team it is routed to. If any of these are missing or wrong, ask your CC Manager to update them.</div>';
+  } else if (p.team) {
+    routingNote = '<div class="s" style="margin-top:10px">Tickets classified under your team (' + esc(p.team.name) + ') land in your team queue' + (p.reporting_manager ? ', with escalations visible to ' + esc(p.reporting_manager.name) : '') + '.</div>';
+  }
+
+  b.innerHTML =
+    '<div style="font-weight:700;font-size:13.5px;margin-bottom:4px;color:var(--ink)">Account Details</div>' +
+    infoHtml + routingNote +
+    '<div style="font-weight:700;font-size:13.5px;margin:18px 0 8px;color:var(--ink);border-top:1px solid var(--line);padding-top:14px">Change Password</div>' +
+    '<div class="fld"><label>Current Password</label><input id="pw_current" type="password" placeholder="Enter current password"></div>' +
+    '<div class="fld"><label>New Password (min 8 chars)</label><input id="pw_new" type="password" placeholder="Enter new password"></div>' +
+    '<div class="fld"><label>Confirm New Password</label><input id="pw_confirm" type="password" placeholder="Re-enter new password" onkeydown="if(event.key==\'Enter\')saveProfilePassword()"></div>' +
+    '<div class="err" id="profile_pw_msg"></div>' +
+    '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px">' +
+      '<button class="btn" onclick="saveProfilePassword()">Update Password</button>' +
+    '</div>';
+}
+
+function saveProfilePassword() {
+  var cur = gv('pw_current'), np = gv('pw_new'), cp = gv('pw_confirm');
+  var msg = document.getElementById('profile_pw_msg');
+  if (msg) { msg.style.color = 'var(--crit)'; msg.textContent = ''; }
+
+  if (!cur) { if (msg) msg.textContent = 'Enter your current password'; return; }
+  if (!np) { if (msg) msg.textContent = 'Enter a new password'; return; }
+  if (np.length < 8) { if (msg) msg.textContent = 'New password must be at least 8 characters'; return; }
+  if (np !== cp) { if (msg) msg.textContent = 'New passwords do not match'; return; }
+  if (np === cur) { if (msg) msg.textContent = 'New password must be different from the current password'; return; }
+
+  api('POST', '/users/me/password', { current_password: cur, new_password: np }).then(function (d) {
+    toast(d.message || 'Password updated successfully');
+    closeModal();
+  }).catch(function (e) {
+    if (msg) msg.textContent = typeof e === 'string' ? e : (e.detail || 'Could not update password');
+  });
+}
 function saveState() {
   try {
     sessionStorage.setItem('ccc_tab', TAB);
@@ -562,6 +637,13 @@ function renderNavTree() {
       '</div>' +
     '</div>';
   }
+
+  // 7. My Profile (all roles)
+  html += '<div class="nav-group">' +
+    '<div class="nav-parent" onclick="openProfile()">' +
+      '<div class="nav-parent-left"><span class="nav-parent-icon">👤</span><span class="nav-parent-title">My Profile</span></div>' +
+    '</div>' +
+  '</div>';
 
   el.innerHTML = html;
 }
@@ -1293,7 +1375,7 @@ function renderT(t, evs) {
     }
     if (t.status === 'RESOLVED') A.push('<button class="btn g" onclick="act(' + t.id + ',\'confirm\')">Confirm with MMU</button>');
     if (t.status === 'CLOSURE_CONFIRMATION') A.push('<button class="btn" onclick="act(' + t.id + ',\'close\')">Close ticket</button>');
-    if (t.status !== 'CLOSED') A.push('<button class="btn r" onclick="act(' + t.id + ',\'escalate\')">Escalate to Global Team Executive</button>');
+    if (t.status !== 'CLOSED' && ME.role !== 'CC_MANAGER') A.push('<button class="btn r" onclick="act(' + t.id + ',\'escalate\')">Escalate to Global Team Executive</button>');
   }
   if ((ME.role === 'CC_MANAGER' || ME.role === 'CALL_TAKER') && t.status === 'CLOSED') {
     var closedDt = parseDT(t.closed_at), windowH = (META.sla && META.sla.reopen_window_hours) || 24;
@@ -1305,10 +1387,9 @@ function renderT(t, evs) {
     ('<div class="fld" style="margin-top:12px"><label>Re-route to team</label><select id="a_team">' +
       Object.keys(META.teams).map(function (k) { return '<option value="' + k + '"' + (k === t.team ? ' selected' : '') + '>' + esc(META.teams[k]) + '</option>'; }).join('') +
       '</select><button class="btn o sm" style="margin-top:7px" onclick="act(' + t.id + ',\'reassign\')">Apply re-route</button></div>') : '';
-  var canAssign = t.status !== 'CLOSED' && ((ME.role === t.team && ME.is_team_manager) || ME.role === 'CC_MANAGER');
-  var assignBlock = canAssign ? ('<div class="fld" style="margin-top:12px"><label>Assign to engineer</label>' +
-    '<select id="a_assignee_sel"><option value="">Loading roster…</option></select> ' +
-    '<button class="btn o sm" onclick="act(' + t.id + ',\'assign\')">Assign</button></div>') : '';
+  // Assign-to-engineer UI is deliberately hidden for now - the backend action
+  // still exists, it's just not offered from the ticket modal.
+  var assignBlock = '';
   var form = (mine && t.status !== 'CLOSED') ? ('<div class="grid2" style="margin-top:6px">' +
     '<div class="fld"><label>Diagnosis</label><textarea id="a_diag" rows="2">' + esc(t.diagnosis || '') + '</textarea></div>' +
     '<div class="fld"><label>Action taken</label><textarea id="a_act" rows="2">' + esc(t.action_taken || '') + '</textarea></div>' +
@@ -1317,19 +1398,22 @@ function renderT(t, evs) {
     '<div class="fld"><label>Resolution (required to resolve)</label><textarea id="a_res" rows="2">' + esc(t.resolution || '') + '</textarea></div>' +
     '<div class="fld"><label>Pending reason (required to hold)</label><input id="a_pend" value="' + esc(t.pending_reason || '') + '"></div>' +
     '<div class="fld"><label>Confirmed by (MMU / field)</label><input id="a_conf" value="' + esc(t.confirmed_by || '') + '" placeholder="Name at the MMU who confirmed"></div>' +
-    '<div class="fld"><label>Note</label><input id="a_note" placeholder="Escalation / re-route remark"></div></div>') : '';
+    '<div class="fld"><label>Re-route remark</label><input id="a_note" placeholder="Remark for re-routing to another team"></div>' +
+    (ME.role !== 'CC_MANAGER' ? '<div class="fld"><label>Escalation reason (required to escalate)</label><input id="a_esc_reason" placeholder="Why this needs the Global Team Executive\'s attention"></div>' : '') +
+    '</div>') : '';
   
   document.getElementById('modal').innerHTML = '<div class="ovl" onclick="if(event.target===this)closeT()"><div class="sheet">' +
     '<div class="sh"><div><div style="font-size:19px;font-weight:800">' + esc(t.ticket_no) + ' &middot; ' + esc(t.category_label) + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '</div>' +
     '<div style="font-size:12.5px;opacity:.9;margin-top:3px">' + esc(t.mmu_vehicle || '—') + ' &middot; ' + esc(t.district || '') + ' &middot; ' + esc(t.team_label) + ' &middot; <span class="pill p-crit" style="font-size:10.5px;padding:2px 7px">EMERGENCY SERVICE</span></div></div>' +
     '<button class="x" onclick="closeT()">&times;</button></div><div class="sb">' +
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px"><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + tatPill(t).replace('<span ', '<span id="modalTat" ') +
-    (t.escalated ? '<span class="pill p-crit">ESCALATED</span>' : '') + '<span class="pill p-mut">TAT ' + esc(t.tat_mins) + ' min</span>' +
+    (t.escalated ? '<span class="pill p-crit">ESCALATED' + (t.escalation_count > 1 ? ' &times;' + esc(t.escalation_count) : '') + '</span>' : '') + '<span class="pill p-mut">TAT ' + esc(t.tat_mins) + ' min</span>' +
     (t.paused_minutes ? '<span class="pill p-mut">Paused ' + esc(t.paused_minutes) + 'm so far</span>' : '') + '</div>' +
     '<div class="grid2"><div>' + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) +
     row('Caller', (t.caller_name || '') + (t.caller_phone ? (' · ' + t.caller_phone) : '')) + row('Location', t.location) + '</div>' +
     '<div>' + row('Created', t.created_at) + row('Due (TAT)', t.due_at) + row('Acknowledged', t.acknowledged_at) + row('Resolved', t.resolved_at) +
-    row('Assigned to', t.assignee) + row('Confirmed by', t.confirmed_by) + row('Closed', t.closed_at) + row('Owner', t.owner) + '</div></div>' +
+    row('Assigned to', t.assignee) + row('Confirmed by', t.confirmed_by) + row('Closed', t.closed_at) + row('Owner', t.owner) +
+    row('Escalation reason', t.escalation_note) + '</div></div>' +
     form + reroute + assignBlock +
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:14px">' + A.join('') + '</div>' +
     '<h4 style="margin:18px 0 8px;font-size:14px">Attachments / Evidence</h4>' +
@@ -1337,22 +1421,21 @@ function renderT(t, evs) {
     '<h4 style="margin:18px 0 8px;font-size:14px">Audit trail</h4><div class="tl">' +
     (evs || []).map(function (e) { return '<div class="e"><b>' + esc(e.action) + '</b> — ' + esc(e.detail || '') + '<div class="muted">' + esc(e.at) + ' · ' + esc(e.actor) + ' (' + esc(e.actor_role) + ')</div></div>'; }).join('') +
     '</div></div></div></div>';
-  if (canAssign) {
-    var rosterUrl = '/users/team-roster' + (ME.role === 'CC_MANAGER' ? ('?team=' + encodeURIComponent(t.team)) : '');
-    api('GET', rosterUrl).then(function (rows) {
-      var sel = document.getElementById('a_assignee_sel');
-      if (sel) sel.innerHTML = '<option value="">Select engineer…</option>' + rows.map(function (u) { return '<option value="' + esc(u.username) + '"' + (u.username === t.assignee ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('');
-    }).catch(function () { });
-  }
   if (MODAL_TICK) clearInterval(MODAL_TICK);
   if (t.status !== 'CLOSED') MODAL_TICK = setInterval(function () { updateModalCountdown(t); }, 30000);
 }
 function act(id, a) {
   var g = function (i) { var e = document.getElementById(i); return e ? e.value.trim() : undefined; };
+  var note = g('a_note');
+  if (a === 'escalate') {
+    var reason = g('a_esc_reason');
+    if (!reason) { toast('Enter a reason before escalating'); return; }
+    note = reason;
+  }
   var b = {
     id: id, action: a, diagnosis: g('a_diag'), action_taken: g('a_act'), root_cause: g('a_rc'), parts: g('a_parts'),
-    resolution: g('a_res'), pending_reason: g('a_pend'), confirmed_by: g('a_conf'), note: g('a_note'),
-    team: g('a_team'), priority: g('a_pri'), assignee: g('a_assignee_sel')
+    resolution: g('a_res'), pending_reason: g('a_pend'), confirmed_by: g('a_conf'), note: note,
+    team: g('a_team'), priority: g('a_pri')
   };
   api('POST', '/ticket/action', b).then(function () { toast('Done: ' + a); closeT(); load(); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Action failed'); });
@@ -1476,9 +1559,12 @@ function viewDash() {
   var kpi = function (n, l, c) { return '<div class="kpi"><div class="n" style="color:' + (c || 'var(--pur)') + '">' + esc(n == null ? '—' : n) + '</div><div class="l">' + esc(l) + '</div></div>'; };
   var attn = function (n, l, c, onclick) { return '<button class="c" onclick="' + onclick + '"><div class="n" style="color:' + c + '">' + esc(n == null ? 0 : n) + '</div><div class="l">' + esc(l) + '</div></button>'; };
   var tbl = function (title, rows, cols) {
+    // A column's 3rd element (raw:true) marks its cell as already-built HTML
+    // (a link/button) that must not be re-escaped - everything else is
+    // treated as plain text and escaped, same as before.
     return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">' + esc(title) + '</h4>' +
       '<table><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      (rows || []).map(function (r) { return '<tr>' + cols.map(function (c) { return '<td>' + esc(c[1](r)) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      (rows || []).map(function (r) { return '<tr>' + cols.map(function (c) { var v = c[1](r); return '<td>' + (c[2] ? v : esc(v)) + '</td>'; }).join('') + '</tr>'; }).join('') +
       '</tbody></table></div>';
   };
   return '<div class="card" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">' +
@@ -1530,7 +1616,11 @@ function viewDash() {
     tbl('Tickets by category', DASH.by_category, [['Category', function (r) { return (META.routing[r.category] || {}).label || r.category; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }]]) +
     tbl('Tickets by responsible team', DASH.by_team, [['Team', function (r) { return META.teams[r.team] || r.team; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }], ['Breached', function (r) { return r.breach_n; }]]) +
     tbl('By status', DASH.by_status, [['Status', function (r) { return (r.status || '').replace(/_/g, ' '); }], ['Count', function (r) { return r.n; }]]) +
-    tbl('Repeat issues by MMU', DASH.repeat_vehicles, [['MMU / Vehicle', function (r) { return '<a href="javascript:void(0)" onclick="viewVehicleTickets(\'' + esc(r.mmu_vehicle) + '\')" style="color:var(--pur);font-weight:700;text-decoration:underline">' + esc(r.mmu_vehicle) + '</a>'; }], ['Tickets', function (r) { return r.n; }], ['Action', function (r) { return '<button class="btn sm o" onclick="viewVehicleTickets(\'' + esc(r.mmu_vehicle) + '\')">View All</button>'; }]]) +
+    tbl('Repeat issues by MMU', DASH.repeat_vehicles, [
+      ['MMU / Vehicle', function (r) { return '<a href="javascript:void(0)" onclick="viewVehicleTickets(\'' + esc(r.mmu_vehicle) + '\')" style="color:var(--pur);font-weight:700;text-decoration:underline">' + esc(r.mmu_vehicle) + '</a>'; }, true],
+      ['Tickets', function (r) { return r.n; }],
+      ['Action', function (r) { return '<button class="btn sm o" onclick="viewVehicleTickets(\'' + esc(r.mmu_vehicle) + '\')">View All</button>'; }, true]
+    ]) +
     tbl('Daily volume (14 days)', DASH.daily, [['Date', function (r) { return r.d; }], ['Created', function (r) { return r.n; }], ['Closed', function (r) { return r.closed_n; }]]) +
     '</div>';
 }

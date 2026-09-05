@@ -80,6 +80,19 @@ def build_report_data(db: Session, district: str = "", mmu_vehicle: str = "", te
         "by_status": q(f"SELECT status, COUNT(*) n FROM ccc_ticket WHERE 1=1{narrow} GROUP BY status"),
         "by_category_mmu": q(f"SELECT category, mmu_vehicle, COUNT(*) n FROM ccc_ticket WHERE mmu_vehicle IS NOT NULL AND mmu_vehicle<>''{narrow} GROUP BY category, mmu_vehicle ORDER BY category, n DESC"),
         "repeat_vehicles": q(f"SELECT mmu_vehicle, COUNT(*) n FROM ccc_ticket WHERE mmu_vehicle IS NOT NULL AND mmu_vehicle<>''{narrow} GROUP BY mmu_vehicle HAVING n>1 ORDER BY n DESC LIMIT 10"),
+        # Chronic equipment watchdog: MMUs/analyzers with >=3 breakdowns in the
+        # last 30 days - candidates for warranty replacement / root-cause
+        # overhaul rather than another one-off repair ticket.
+        "chronic_equipment": q(f"""SELECT mmu_vehicle, district, COUNT(*) n,
+                                          SUM(CASE WHEN status<>'CLOSED' THEN 1 ELSE 0 END) open_n,
+                                          GROUP_CONCAT(DISTINCT category) categories,
+                                          MAX(created_at) last_breakdown_at
+                                   FROM ccc_ticket
+                                   WHERE mmu_vehicle IS NOT NULL AND mmu_vehicle<>''
+                                     AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY) {narrow}
+                                   GROUP BY mmu_vehicle, district
+                                   HAVING n >= 3
+                                   ORDER BY n DESC, open_n DESC LIMIT 15"""),
         "daily": q(f"SELECT DATE(created_at) d, COUNT(*) n, SUM(status='CLOSED') closed_n FROM ccc_ticket WHERE 1=1{narrow} GROUP BY d ORDER BY d DESC LIMIT 14"),
     }
 
@@ -102,8 +115,13 @@ def build_report_data(db: Session, district: str = "", mmu_vehicle: str = "", te
         if r.get("d"):
             r["d"] = str(r["d"])
 
+    for r in d["chronic_equipment"]:
+        if r.get("last_breakdown_at"):
+            r["last_breakdown_at"] = str(r["last_breakdown_at"])[:16]
+
     # Cast decimals to int/float for JSON serialization
-    for k in ("by_category", "by_team", "by_priority", "daily", "by_category_mmu", "repeat_vehicles", "by_status"):
+    for k in ("by_category", "by_team", "by_priority", "daily", "by_category_mmu", "repeat_vehicles",
+              "chronic_equipment", "by_status"):
         for r in d[k]:
             for key, val in r.items():
                 if hasattr(val, 'quantize'):  # Decimal

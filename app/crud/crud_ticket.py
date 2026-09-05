@@ -1,5 +1,6 @@
 import json
 import datetime
+from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, desc, text
 from sqlalchemy.exc import IntegrityError
@@ -60,7 +61,9 @@ def _critical_window_sql(sla_cfg):
 
 def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope: str = "", q: str = "",
                  priority: str = "", category: str = "", mmu_vehicle: str = "", district: str = "",
-                 date_from: str = "", date_to: str = "", page: int = 1, page_size: int = 50,
+                 district_id: Optional[int] = None, mandal_id: Optional[int] = None,
+                 date_from: str = "", date_to: str = "", time_from: str = "", time_to: str = "", shift: str = "",
+                 page: int = 1, page_size: int = 50,
                  sort_by: str = "", sort_desc: bool = False):
     query = db.query(Ticket)
 
@@ -95,12 +98,54 @@ def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope
         query = query.filter(Ticket.category == category)
     if mmu_vehicle:
         query = query.filter(Ticket.mmu_vehicle.like(f"%{mmu_vehicle}%"))
-    if district:
+    # A precise location pick (district_id, from the Location dropdown) wins
+    # over the free-text `district` fallback used by older callers/exports.
+    if district_id:
+        query = query.filter(Ticket.district_id == district_id)
+    elif district:
         query = query.filter(Ticket.district.like(f"%{district}%"))
+    if mandal_id:
+        query = query.filter(Ticket.mandal_id == mandal_id)
+
     if date_from:
-        query = query.filter(Ticket.created_at >= date_from)
+        d_from = date_from.strip().replace("T", " ")
+        if len(d_from) == 10:
+            d_from = f"{d_from} 00:00:00"
+        elif len(d_from) == 16:
+            d_from = f"{d_from}:00"
+        query = query.filter(Ticket.created_at >= d_from)
     if date_to:
-        query = query.filter(Ticket.created_at < f"{date_to} 23:59:59")
+        d_to = date_to.strip().replace("T", " ")
+        if len(d_to) == 10:
+            d_to = f"{d_to} 23:59:59"
+        elif len(d_to) == 16:
+            d_to = f"{d_to}:59"
+        query = query.filter(Ticket.created_at <= d_to)
+
+    # Operational shift is just a named time-of-day window; an explicit
+    # time_from/time_to (if ever sent) takes precedence over it.
+    if shift == "morning":
+        time_from, time_to = time_from or "08:00:00", time_to or "14:00:00"
+    elif shift == "evening":
+        time_from, time_to = time_from or "14:00:00", time_to or "20:00:00"
+    elif shift == "night":
+        time_from, time_to = time_from or "20:00:00", time_to or "08:00:00"
+
+    # Bound params here, never an f-string into text() - time_from/time_to
+    # are raw request query params, and splicing them into SQL text would be
+    # a straightforward injection point.
+    if time_from and time_to:
+        if time_from <= time_to:
+            query = query.filter(text("TIME(ccc_ticket.created_at) >= :t_from AND TIME(ccc_ticket.created_at) <= :t_to")
+                                  .bindparams(t_from=time_from, t_to=time_to))
+        else:
+            # Window wraps past midnight (e.g. the night shift) - either side counts.
+            query = query.filter(text("(TIME(ccc_ticket.created_at) >= :t_from OR TIME(ccc_ticket.created_at) <= :t_to)")
+                                  .bindparams(t_from=time_from, t_to=time_to))
+    elif time_from:
+        query = query.filter(text("TIME(ccc_ticket.created_at) >= :t_from").bindparams(t_from=time_from))
+    elif time_to:
+        query = query.filter(text("TIME(ccc_ticket.created_at) <= :t_to").bindparams(t_to=time_to))
 
     if q:
         search_pattern = f"%{q}%"

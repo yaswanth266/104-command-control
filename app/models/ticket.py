@@ -58,5 +58,10 @@ class Ticket(Base):
     escalated_at = Column(DateTime)
     escalated_to = Column(String(64))
     escalation_note = Column(String(255))
+    # How many times this ticket has been escalated (not just whether it
+    # currently is - `escalated`/`escalation_note` only reflect the latest
+    # one). Each escalation's own reason still lives forever in ccc_event
+    # (append-only), this is just a quick running count for the UI/reports.
+    escalation_count = Column(Integer, server_default=text("0"))
     breached = Column(Boolean, server_default=text("0"))
     reopened = Column(Integer, server_default=text("0"))

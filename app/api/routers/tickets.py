@@ -12,7 +12,7 @@ from app.crud.crud_team import get_team_map
 from app.crud.crud_settings import get_sla_config, detect_vip
 from app.crud.crud_attachment import create_attachment, get_attachments_by_ticket
 from app.services.ticket_service import process_ticket_action
-from app.services.formatting import enrich
+from app.services.formatting import enrich, get_chronic_breakdowns_map
 from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_attachment
 from app.services.webhooks import dispatch_ticket_event
@@ -101,16 +101,20 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
 @collection_router.get("")
 def list_tickets(status: str = "", team: str = "", scope: str = "", q_: str = "",
                  priority: str = "", category: str = "", mmu_vehicle: str = "", district: str = "",
-                 date_from: str = "", date_to: str = "", page: int = 1, page_size: int = 50,
+                 district_id: Optional[int] = None, mandal_id: Optional[int] = None,
+                 date_from: str = "", date_to: str = "", time_from: str = "", time_to: str = "", shift: str = "",
+                 page: int = 1, page_size: int = 50,
                  sort_by: str = "", sort_desc: bool = False,
                  db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     tickets, total = get_tickets(db, current_user, status=status, team=team, scope=scope, q=q_,
                                   priority=priority, category=category, mmu_vehicle=mmu_vehicle, district=district,
-                                  date_from=date_from, date_to=date_to, page=page, page_size=page_size,
-                                  sort_by=sort_by, sort_desc=sort_desc)
+                                  district_id=district_id, mandal_id=mandal_id,
+                                  date_from=date_from, date_to=date_to, time_from=time_from, time_to=time_to, shift=shift,
+                                  page=page, page_size=page_size, sort_by=sort_by, sort_desc=sort_desc)
     category_map, team_map, sla_cfg = get_category_map(db), get_team_map(db), get_sla_config(db)
+    chronic_map = get_chronic_breakdowns_map(db)
     return {"count": len(tickets), "total": total, "page": page, "page_size": page_size,
-            "rows": [enrich(t, category_map, team_map, sla_cfg) for t in tickets]}
+            "rows": [enrich(t, category_map, team_map, sla_cfg, chronic_map) for t in tickets]}
 
 @router.get("/{tid}")
 def get_one_ticket(tid: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
@@ -128,7 +132,7 @@ def get_one_ticket(tid: int, db: Session = Depends(get_db), current_user: dict =
             ev_dict["at"] = ev_dict["at"].strftime("%Y-%m-%d %H:%M")
         evs_out.append(ev_dict)
 
-    enriched = enrich(t, get_category_map(db), get_team_map(db), get_sla_config(db))
+    enriched = enrich(t, get_category_map(db), get_team_map(db), get_sla_config(db), get_chronic_breakdowns_map(db))
     return {"ticket": enriched, "events": evs_out}
 
 @router.post("/action")

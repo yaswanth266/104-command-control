@@ -1,7 +1,7 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.user import User
-from app.core.security import hash_pw
+from app.core.security import hash_pw, verify_pw
 
 FIXED_ROLES = ["CALL_TAKER", "LT"]  # CC_MANAGER is a real (undeactivatable) ccc_team row - see crud_team.py
 
@@ -112,3 +112,16 @@ def update_user(db: Session, user_id: int, name: str = None, role: str = None, p
     db.commit()
     db.refresh(u)
     return u
+
+def change_own_password(db: Session, user_id: int, current_password: str, new_password: str) -> None:
+    """Self-service password change - unlike update_user's admin-driven reset,
+    this requires proof of the current password before touching anything."""
+    u = get_user(db, user_id)
+    if not u:
+        raise HTTPException(404, "User not found")
+    if not verify_pw(current_password, u.pw):
+        raise HTTPException(401, "Current password is incorrect")
+    if len(new_password or "") < 8:
+        raise HTTPException(400, "New password must be at least 8 characters")
+    u.pw = hash_pw(new_password)
+    db.commit()

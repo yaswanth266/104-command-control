@@ -1,5 +1,6 @@
 import datetime
 import io
+from typing import Optional
 from fastapi import APIRouter, Depends
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -40,7 +41,8 @@ def _write_rows(ws, headers, rows):
 @router.get("/tickets.xlsx")
 def export_tickets(status: str = "", team: str = "", scope: str = "", q_: str = "",
                     priority: str = "", category: str = "", mmu_vehicle: str = "", district: str = "",
-                    date_from: str = "", date_to: str = "",
+                    district_id: Optional[int] = None, mandal_id: Optional[int] = None,
+                    date_from: str = "", date_to: str = "", time_from: str = "", time_to: str = "", shift: str = "",
                     sort_by: str = "", sort_desc: bool = False,
                     db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
     """Exports the same rows the Ticket Queue would show for these filters -
@@ -48,8 +50,9 @@ def export_tickets(status: str = "", team: str = "", scope: str = "", q_: str = 
     team's data, exactly like the queue itself already scopes access."""
     tickets, total = get_tickets(db, current_user, status=status, team=team, scope=scope, q=q_,
                                   priority=priority, category=category, mmu_vehicle=mmu_vehicle, district=district,
-                                  date_from=date_from, date_to=date_to, page=1, page_size=5000,
-                                  sort_by=sort_by, sort_desc=sort_desc)
+                                  district_id=district_id, mandal_id=mandal_id,
+                                  date_from=date_from, date_to=date_to, time_from=time_from, time_to=time_to, shift=shift,
+                                  page=1, page_size=5000, sort_by=sort_by, sort_desc=sort_desc)
     category_map, team_map, sla_cfg = get_category_map(db), get_team_map(db), get_sla_config(db)
     rows = [enrich(t, category_map, team_map, sla_cfg) for t in tickets]
 
@@ -132,5 +135,11 @@ def export_summary(period: str = "daily", district: str = "", mmu_vehicle: str =
     ws7 = wb.create_sheet("Repeat Vehicles")
     _write_rows(ws7, ["MMU/Vehicle", "Tickets"], [[r["mmu_vehicle"], r["n"]] for r in d["repeat_vehicles"]])
     _autosize(ws7)
+
+    ws8 = wb.create_sheet("Chronic Equipment")
+    _write_rows(ws8, ["MMU/Vehicle", "District", "Breakdowns (30d)", "Still Open", "Issue Types", "Last Breakdown"],
+                [[r["mmu_vehicle"], r["district"], r["n"], r["open_n"], r["categories"], r["last_breakdown_at"]]
+                 for r in d["chronic_equipment"]])
+    _autosize(ws8)
 
     return _xlsx_response(wb, f"summary_{period}_{date_from}_to_{date_to}.xlsx")

@@ -166,14 +166,20 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
              status=TARGET_STATUS[act], closed_at=now, breached=breached, resolution=action_in.resolution or ticket.resolution)
 
     elif act == "escalate":
+        if role == "CC_MANAGER":
+            raise HTTPException(403, "The Global Team Executive is the escalation target - this ticket cannot be escalated to yourself")
         if not own:
             raise HTTPException(403, "Only the assigned team may escalate this ticket")
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: only an open ticket may be escalated")
-        setf("ESCALATED", f"Escalated to Global Team Executive: {action_in.note or 'TAT risk'}",
+        reason = (action_in.note or "").strip()
+        if not reason:
+            raise HTTPException(400, "SOP: a reason is required to escalate this ticket")
+        setf("ESCALATED", f"Escalated to Global Team Executive: {reason}",
              "ticket.escalated",
-             escalated=True, escalated_at=now, escalated_to='CC_MANAGER', escalation_note=action_in.note or "TAT risk")
-        notify_escalated(db, ticket, action_in.note or "TAT risk")
+             escalated=True, escalated_at=now, escalated_to='CC_MANAGER', escalation_note=reason,
+             escalation_count=(ticket.escalation_count or 0) + 1)
+        notify_escalated(db, ticket, reason)
 
     elif act == "assign":
         # Directive, not an access-control gate: a Team Executive points a

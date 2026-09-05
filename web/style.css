@@ -537,6 +537,22 @@ tr.row:hover td {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Chronic-equipment watchdog badge - a vehicle/MMU with >=3 breakdowns in the
+   last 30 days (see app/services/formatting.py's get_chronic_breakdowns_map). */
+.pill-chronic {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+  background: #FEF2F2;
+  color: #991B1B;
+  border: 1px solid #FCA5A5;
+}
+
 @keyframes pulse {
 
   0%,
