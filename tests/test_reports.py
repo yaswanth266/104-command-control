@@ -83,7 +83,7 @@ def test_export_summary_xlsx_has_expected_sheets(client):
     r = client.get("/cccapi/reports/summary.xlsx?period=daily", headers=MGR)
     assert r.status_code == 200
     wb = load_workbook(io.BytesIO(r.content))
-    assert wb.sheetnames == ["Overview", "By Category", "By Team", "By Priority", "By Status", "Category x MMU", "Repeat Vehicles"]
+    assert wb.sheetnames == ["Overview", "By Category", "By Team", "By Priority", "By Status", "Category x MMU", "Repeat Vehicles", "Chronic Equipment"]
 
 
 def test_export_summary_xlsx_forbidden_for_engineer(client):

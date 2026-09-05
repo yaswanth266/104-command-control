@@ -30,3 +30,15 @@ def notify_assigned(db: Session, ticket: Ticket, assignee_username: str, manager
     create_notification(db, None, ticket.id, "ASSIGNED",
                          f"{manager_name} assigned you ticket {ticket.ticket_no}",
                          audience_username=assignee_username)
+
+def notify_not_resolved(db: Session, ticket: Ticket, reason: str):
+    create_notification(db, ticket.team, ticket.id, "NOT_RESOLVED",
+                         f"⚠️ Field team rejected resolution for Ticket {ticket.ticket_no}: {reason[:120]}")
+    if ticket.assignee:
+        create_notification(db, None, ticket.id, "NOT_RESOLVED",
+                             f"⚠️ Ticket {ticket.ticket_no} returned to you (NOT RESOLVED): {reason[:120]}",
+                             audience_username=ticket.assignee)
+    if ticket.escalated:
+        create_notification(db, "CC_MANAGER", ticket.id, "NOT_RESOLVED",
+                             f"⚠️ Escalated ticket {ticket.ticket_no} marked NOT RESOLVED: {reason[:120]}")
+

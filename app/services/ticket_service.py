@@ -8,7 +8,7 @@ from app.crud.crud_ticket import get_tat_map
 from app.crud.crud_team import get_team_map, get_active_team_map
 from app.crud.crud_settings import get_sla_config, get_dispatch_config
 from app.schemas.ticket import ActionIn
-from app.services.notifications import notify_escalated, notify_assigned
+from app.services.notifications import notify_escalated, notify_assigned, notify_not_resolved
 from app.services.webhooks import dispatch_ticket_event
 
 # Centralized workflow contract: the ticket statuses each lifecycle action may
@@ -16,22 +16,24 @@ from app.services.webhooks import dispatch_ticket_event
 # encodes "Registered -> Assigned -> Acknowledged -> Investigated -> Resolved ->
 # MMU Confirmed -> Closed" so no action can skip or reorder a mandatory stage.
 ALLOWED_FROM = {
-    "acknowledge": {"NEW", "ASSIGNED"},
-    "start":       {"ACKNOWLEDGED", "IN_PROGRESS", "PENDING"},
-    "pending":     {"ACKNOWLEDGED", "IN_PROGRESS", "PENDING"},
-    "resolve":     {"ACKNOWLEDGED", "IN_PROGRESS", "PENDING"},
-    "confirm":     {"RESOLVED"},
-    "close":       {"CLOSURE_CONFIRMATION"},
-    "reopen":      {"CLOSED"},
+    "acknowledge":  {"NEW", "ASSIGNED"},
+    "start":        {"ACKNOWLEDGED", "IN_PROGRESS", "PENDING"},
+    "pending":      {"ACKNOWLEDGED", "IN_PROGRESS", "PENDING"},
+    "resolve":      {"ACKNOWLEDGED", "IN_PROGRESS", "PENDING"},
+    "confirm":      {"RESOLVED"},
+    "not_resolved": {"RESOLVED"},
+    "close":        {"CLOSURE_CONFIRMATION"},
+    "reopen":       {"CLOSED"},
 }
 TARGET_STATUS = {
-    "acknowledge": "ACKNOWLEDGED",
-    "start":       "IN_PROGRESS",
-    "pending":     "PENDING",
-    "resolve":     "RESOLVED",
-    "confirm":     "CLOSURE_CONFIRMATION",
-    "close":       "CLOSED",
-    "reopen":      "IN_PROGRESS",
+    "acknowledge":  "ACKNOWLEDGED",
+    "start":        "IN_PROGRESS",
+    "pending":      "PENDING",
+    "resolve":      "RESOLVED",
+    "confirm":      "CLOSURE_CONFIRMATION",
+    "not_resolved": "IN_PROGRESS",
+    "close":        "CLOSED",
+    "reopen":       "IN_PROGRESS",
 }
 
 def _require_transition(ticket: Ticket, action: str):
@@ -242,19 +244,41 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
              "ticket.note_added",
              priority=action_in.priority, tat_mins=nt_mins, due_at=new_due)
 
+    elif act == "not_resolved":
+        if role not in ("CC_MANAGER", "CALL_TAKER") and not is_originating_lt and not own:
+            raise HTTPException(403, "You do not have permission to reject resolution for this ticket")
+        _require_transition(ticket, act)
+        reason = (action_in.note or "").strip()
+        if not reason:
+            raise HTTPException(400, "Please provide the reason / field observations explaining why this issue is not resolved")
+
+        setf("NOT_RESOLVED", f"Marked NOT RESOLVED by {user['name']} ({user['role']}): {reason}",
+             "ticket.status_changed",
+             status="IN_PROGRESS",
+             resolved_at=None,
+             confirmed_by=None,
+             confirmed_at=None,
+             closed_at=None,
+             reopened=(ticket.reopened or 0) + 1)
+        notify_not_resolved(db, ticket, reason)
+
     elif act == "reopen":
         if role not in ("CC_MANAGER", "CALL_TAKER") and not is_originating_lt:
             raise HTTPException(403, "Only the Global Team Executive, Call Taker, or the LT who raised this ticket may reopen")
         _require_transition(ticket, act)
-        if not (action_in.note or "").strip():
+        reason = (action_in.note or "").strip()
+        if not reason:
             raise HTTPException(400, "SOP: reopening a ticket must record the reason")
         window_hours = get_sla_config(db)["reopen_window_hours"]
         if ticket.closed_at and (now - ticket.closed_at) > datetime.timedelta(hours=window_hours):
             raise HTTPException(409, f"SOP: this ticket closed over {window_hours}h ago and can no longer be "
                                       "reopened - register a new ticket instead so history stays accurate")
-        setf("REOPENED", action_in.note,
+        setf("REOPENED", f"Reopened by {user['name']} ({user['role']}): {reason}",
              "ticket.status_changed",
-             status=TARGET_STATUS[act], closed_at=None, reopened=ticket.reopened + 1)
+             status="IN_PROGRESS",
+             closed_at=None,
+             reopened=(ticket.reopened or 0) + 1)
+        notify_not_resolved(db, ticket, reason)
     else:
         raise HTTPException(400, "Unknown action")
 

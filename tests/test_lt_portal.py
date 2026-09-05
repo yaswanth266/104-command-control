@@ -214,3 +214,66 @@ def test_multiple_photos_upload_accepts_and_creates_attachments(client):
     assert "photo2.png" in filenames
     db.close()
 
+
+def test_lt_can_mark_resolved_ticket_as_not_resolved(client):
+    from app.models.notification import Notification
+    from app.models.event import Event
+
+    r = _raise_lt_ticket(client)
+    tid = r.json()["id"]
+
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=CDA)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "resolve", "resolution": "Replaced fuse"}, headers=CDA)
+
+    # 1. Reject without note fails with 400
+    r_empty = client.post("/cccapi/ticket/action", json={"id": tid, "action": "not_resolved", "note": ""}, headers=LT)
+    assert r_empty.status_code == 400
+
+    # 2. Another LT cannot reject this ticket
+    r_other = client.post("/cccapi/ticket/action", json={"id": tid, "action": "not_resolved", "note": "Still broken"}, headers=LT2)
+    assert r_other.status_code == 403
+
+    # 3. Originating LT submits not_resolved with observations
+    reason_text = "Fuse replaced but analyzer error 404 still displays on boot"
+    r_nr = client.post("/cccapi/ticket/action", json={"id": tid, "action": "not_resolved", "note": reason_text}, headers=LT)
+    assert r_nr.status_code == 200, r_nr.text
+
+    db = SessionLocal()
+    t = db.query(Ticket).filter(Ticket.id == tid).first()
+    assert t.status == "IN_PROGRESS"
+    assert t.resolved_at is None
+    assert t.confirmed_by is None
+    assert t.confirmed_at is None
+    assert t.reopened == 1
+
+    # Verify event was recorded
+    ev = db.query(Event).filter(Event.ticket_id == tid, Event.action == "NOT_RESOLVED").first()
+    assert ev is not None
+    assert reason_text in ev.detail
+
+    # Verify notification sent to CDA team
+    notif = db.query(Notification).filter(
+        Notification.ticket_id == tid,
+        Notification.audience_role == LT_CDA_TEAM,
+        Notification.type == "NOT_RESOLVED"
+    ).first()
+    assert notif is not None
+    assert "rejected resolution" in notif.message
+    assert reason_text in notif.message
+    db.close()
+
+
+def test_not_resolved_rejected_after_confirmation(client):
+    r = _raise_lt_ticket(client)
+    tid = r.json()["id"]
+
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=CDA)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "resolve", "resolution": "Cleaned connector"}, headers=CDA)
+    # Confirm first (moves to CLOSURE_CONFIRMATION)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "confirm", "confirmed_by": LT_USERNAME}, headers=LT)
+
+    # not_resolved must now be rejected because ticket is already confirmed
+    r_nr = client.post("/cccapi/ticket/action", json={"id": tid, "action": "not_resolved", "note": "Trying to reject after confirm"}, headers=LT)
+    assert r_nr.status_code == 409
+    assert "not valid while the ticket is CLOSURE_CONFIRMATION" in r_nr.text
+

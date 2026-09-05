@@ -1,5 +1,6 @@
 var API = '/cccapi', TOK = sessionStorage.getItem('ccc_tok') || localStorage.getItem('ccc_tok') || '', ME = null, META = null, TAB = 'queue', ROWS = [], ROWTOTAL = 0, DASH = null, LAST_DASH_STR = '',
   FILT = { status: '', scope: '', team: '', priority: '', category: '', mmu_vehicle: '', district: '', district_id: '', mandal_id: '', date_preset: '', date_from: '', date_to: '', time_from: '', time_to: '', shift: '', q: '', page: 1, page_size: 50, sort_by: 'created_at', sort_desc: true },
+  DASH_FILT = { district: '', team: '', mmu_vehicle: '', date_preset: '', date_from: '', date_to: '' },
   NOTIFS = [], NOTIF_OPEN = false, POLL_TIMER = null, CLOCK_TIMER = null,
   ADMIN_TAB = 'teams', ADMIN_TEAMS = [], ADMIN_CATEGORIES = [], ADMIN_SLA = null, ADMIN_DISPATCH = null, ADMIN_USERS = [], ADMIN_USERS_Q = '', ADMIN_ROLES = [], ADMIN_AUDIT = [], ADMIN_LOADED = {},
   ADMIN_DISTRICTS = [], ADMIN_ZONES = [], ADMIN_MANDALS = [], ADMIN_VEHICLES = [], ADMIN_REASONS = [], ADMIN_MACHINES = [],
@@ -325,9 +326,11 @@ function saveState() {
     sessionStorage.setItem('ccc_tab', TAB);
     sessionStorage.setItem('ccc_admin_tab', ADMIN_TAB);
     sessionStorage.setItem('ccc_filt', JSON.stringify(FILT));
+    sessionStorage.setItem('ccc_dash_filt', JSON.stringify(DASH_FILT));
     localStorage.setItem('ccc_tab', TAB);
     localStorage.setItem('ccc_admin_tab', ADMIN_TAB);
     localStorage.setItem('ccc_filt', JSON.stringify(FILT));
+    localStorage.setItem('ccc_dash_filt', JSON.stringify(DASH_FILT));
 
     if (CURRENT_MODAL_TICKET_ID) {
       sessionStorage.setItem('ccc_modal_ticket', CURRENT_MODAL_TICKET_ID);
@@ -356,6 +359,15 @@ function saveState() {
       if (FILT.page > 1) params.push('page=' + FILT.page);
       if (CURRENT_MODAL_TICKET_ID) params.push('ticket=' + CURRENT_MODAL_TICKET_ID);
       if (params.length) hash += '?' + params.join('&');
+    } else if (TAB === 'dash') {
+      var dparams = [];
+      if (DASH_FILT.district) dparams.push('district=' + encodeURIComponent(DASH_FILT.district));
+      if (DASH_FILT.team) dparams.push('team=' + encodeURIComponent(DASH_FILT.team));
+      if (DASH_FILT.mmu_vehicle) dparams.push('mmu_vehicle=' + encodeURIComponent(DASH_FILT.mmu_vehicle));
+      if (DASH_FILT.date_preset) dparams.push('date_preset=' + encodeURIComponent(DASH_FILT.date_preset));
+      if (DASH_FILT.date_from) dparams.push('date_from=' + encodeURIComponent(DASH_FILT.date_from));
+      if (DASH_FILT.date_to) dparams.push('date_to=' + encodeURIComponent(DASH_FILT.date_to));
+      if (dparams.length) hash += '?' + dparams.join('&');
     }
 
     if (window.history && window.history.replaceState) {
@@ -387,6 +399,16 @@ function restoreState() {
       } catch (e) {}
     }
 
+    var savedDashFilt = sessionStorage.getItem('ccc_dash_filt') || localStorage.getItem('ccc_dash_filt');
+    if (savedDashFilt) {
+      try {
+        var df = JSON.parse(savedDashFilt);
+        for (var dk in df) {
+          if (df.hasOwnProperty(dk)) DASH_FILT[dk] = df[dk];
+        }
+      } catch (e) {}
+    }
+
     var savedTicket = sessionStorage.getItem('ccc_modal_ticket') || localStorage.getItem('ccc_modal_ticket');
     if (savedTicket) CURRENT_MODAL_TICKET_ID = parseInt(savedTicket) || null;
 
@@ -409,18 +431,27 @@ function restoreState() {
 
       if (qs) {
         var sp = new URLSearchParams(qs);
-        if (sp.has('status')) FILT.status = sp.get('status');
-        if (sp.has('scope')) FILT.scope = sp.get('scope');
-        if (sp.has('team')) FILT.team = sp.get('team');
-        if (sp.has('district_id')) FILT.district_id = sp.get('district_id');
-        if (sp.has('q')) FILT.q = sp.get('q');
-        if (sp.has('date_preset')) FILT.date_preset = sp.get('date_preset');
-        if (sp.has('date_from')) FILT.date_from = sp.get('date_from');
-        if (sp.has('date_to')) FILT.date_to = sp.get('date_to');
-        if (sp.has('sort_by')) FILT.sort_by = sp.get('sort_by');
-        if (sp.has('sort_desc')) FILT.sort_desc = sp.get('sort_desc') === '1' || sp.get('sort_desc') === 'true';
-        if (sp.has('page')) FILT.page = parseInt(sp.get('page')) || 1;
-        if (sp.has('ticket')) CURRENT_MODAL_TICKET_ID = parseInt(sp.get('ticket')) || null;
+        if (TAB === 'dash') {
+          if (sp.has('district')) DASH_FILT.district = sp.get('district');
+          if (sp.has('team')) DASH_FILT.team = sp.get('team');
+          if (sp.has('mmu_vehicle')) DASH_FILT.mmu_vehicle = sp.get('mmu_vehicle');
+          if (sp.has('date_preset')) DASH_FILT.date_preset = sp.get('date_preset');
+          if (sp.has('date_from')) DASH_FILT.date_from = sp.get('date_from');
+          if (sp.has('date_to')) DASH_FILT.date_to = sp.get('date_to');
+        } else {
+          if (sp.has('status')) FILT.status = sp.get('status');
+          if (sp.has('scope')) FILT.scope = sp.get('scope');
+          if (sp.has('team')) FILT.team = sp.get('team');
+          if (sp.has('district_id')) FILT.district_id = sp.get('district_id');
+          if (sp.has('q')) FILT.q = sp.get('q');
+          if (sp.has('date_preset')) FILT.date_preset = sp.get('date_preset');
+          if (sp.has('date_from')) FILT.date_from = sp.get('date_from');
+          if (sp.has('date_to')) FILT.date_to = sp.get('date_to');
+          if (sp.has('sort_by')) FILT.sort_by = sp.get('sort_by');
+          if (sp.has('sort_desc')) FILT.sort_desc = sp.get('sort_desc') === '1' || sp.get('sort_desc') === 'true';
+          if (sp.has('page')) FILT.page = parseInt(sp.get('page')) || 1;
+          if (sp.has('ticket')) CURRENT_MODAL_TICKET_ID = parseInt(sp.get('ticket')) || null;
+        }
       }
       // Sanitize stale ghost filters
       FILT.mmu_vehicle = '';
@@ -694,6 +725,17 @@ function queueQS() {
   if (FILT.q) params.push('q_=' + encodeURIComponent(FILT.q));
   return params.join('&');
 }
+
+function dashQS() {
+  var p = [];
+  if (DASH_FILT.district) p.push('district=' + encodeURIComponent(DASH_FILT.district));
+  if (DASH_FILT.team) p.push('team=' + encodeURIComponent(DASH_FILT.team));
+  if (DASH_FILT.mmu_vehicle) p.push('mmu_vehicle=' + encodeURIComponent(DASH_FILT.mmu_vehicle.trim()));
+  if (DASH_FILT.date_from) p.push('date_from=' + encodeURIComponent(DASH_FILT.date_from));
+  if (DASH_FILT.date_to) p.push('date_to=' + encodeURIComponent(DASH_FILT.date_to));
+  return p.length ? ('?' + p.join('&')) : '';
+}
+
 function load(forced) {
   if (ME.role === 'LT') { if (TAB === 'mine') loadLTMine(); return; }
   if (TAB === 'queue') {
@@ -735,7 +777,7 @@ function load(forced) {
     });
   }
   if (TAB === 'dash') {
-    api('GET', '/dashboard').then(function (d) {
+    api('GET', '/dashboard' + dashQS()).then(function (d) {
       var dStr = JSON.stringify(d);
       if (forced || dStr !== LAST_DASH_STR) {
         LAST_DASH_STR = dStr;
@@ -772,8 +814,21 @@ function viewVehicleTickets(veh) {
 }
 function gotoPage(p) { if (p < 1) return; FILT.page = p; saveState(); load(true); }
 
-/* ---------- queue ---------- */
 function parseDT(s) { if (!s) return null; var p = s.split(/[- :]/); return new Date(+p[0], +p[1] - 1, +p[2], +p[3] || 0, +p[4] || 0, 0); }
+function formatDT(s) {
+  if (!s) return '—';
+  var str = String(s).trim().replace('T', ' ');
+  if (str.indexOf('AM') !== -1 || str.indexOf('PM') !== -1) return esc(str);
+  var p = str.split(/[- :]/);
+  if (p.length < 5) return esc(str.slice(0, 16));
+  var y = p[0], m = p[1], d = p[2], hh = parseInt(p[3], 10), mm = p[4];
+  if (isNaN(hh)) return esc(str.slice(0, 16));
+  var ampm = hh >= 12 ? 'PM' : 'AM';
+  var h12 = hh % 12;
+  if (h12 === 0) h12 = 12;
+  var hStr = (h12 < 10 ? '0' : '') + h12;
+  return esc(y + '-' + m + '-' + d + ' ' + hStr + ':' + mm + ' ' + ampm);
+}
 function computeTier(dueAt, tatMins) {
   var d = parseDT(dueAt); if (!d) return null; var mins = (d.getTime() - Date.now()) / 60000;
   var sla = (META && META.sla) || { at_risk_minutes: 60, at_risk_fraction: .2, critical_minutes: 15, critical_fraction: .05 };
@@ -792,6 +847,19 @@ function tatPill(t) {
   var s = t.tat_state; var k = s === 'BREACHED' ? 'p-crit' : (s === 'CRITICAL' ? 'p-critical' : (s === 'AT RISK' ? 'p-warn' : (s === 'MET' || s === 'ON TRACK' ? 'p-ok' : 'p-mut')));
   var extra = (t.mins_left != null && t.status !== 'CLOSED') ? (' · ' + (t.mins_left < 0 ? ('+' + Math.abs(t.mins_left)) : t.mins_left) + 'm') : '';
   return '<span class="pill ' + k + '">' + esc(s) + extra + '</span>';
+}
+function statusPill(status) {
+  var s = (status || '').toUpperCase();
+  var label = esc(s.replace(/_/g, ' '));
+  var cls = 'p-mut';
+  if (s === 'NEW') cls = 'p-info';
+  else if (s === 'ASSIGNED') cls = 'p-assigned';
+  else if (s === 'IN_PROGRESS' || s === 'ACKNOWLEDGED') cls = 'p-warn';
+  else if (s === 'PENDING') cls = 'p-pending';
+  else if (s === 'RESOLVED') cls = 'p-ok';
+  else if (s === 'CLOSURE_CONFIRMATION') cls = 'p-closure';
+  else if (s === 'CLOSED') cls = 'p-mut';
+  return '<span class="pill ' + cls + '">' + label + '</span>';
 }
 function gv(i) { var e = document.getElementById(i); return e ? e.value.trim() : ''; }
 
@@ -930,6 +998,57 @@ function downloadExcel(path, filename) {
 function exportQueue() {
   downloadExcel('/reports/tickets.xlsx?' + queueQS(), 'Tickets_Export.xlsx');
 }
+function renderQueueRow(t) {
+  var raisedTime = formatDT(t.created_at);
+  var dueTime = formatDT(t.due_at);
+  var chronicBadge = t.is_chronic_fault ?
+    (' <span class="pill-chronic" title="' + t.chronic_breakdown_count + ' breakdowns in 30 days">⚠️ ' + t.chronic_breakdown_count + 'x in 30d</span>') : '';
+  var vipBadge = t.vip ? ' <span class="pill p-crit" style="font-size:10px;padding:1px 6px">VIP</span>' : '';
+  var escBadge = t.escalated ? ' <span class="pill p-crit" style="font-size:10px;padding:2px 6px;margin-left:4px">ESC</span>' : '';
+
+  return '<tr class="row" onclick="openT(' + t.id + ')">' +
+    '<td style="white-space:nowrap">' +
+      '<div style="font-weight:700;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:6px">' +
+        '<span>' + esc(t.ticket_no) + '</span>' + vipBadge +
+      '</div>' +
+      '<div class="muted" style="font-size:11.5px;margin-top:2px">' + esc(t.source) + '</div>' +
+    '</td>' +
+    '<td>' +
+      '<div style="font-weight:600;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<span>' + esc(t.mmu_vehicle || '—') + '</span>' + chronicBadge +
+      '</div>' +
+      '<div class="muted" style="font-size:11.5px;margin-top:2px">' + esc(t.district || '') + (t.mandal ? (' · ' + esc(t.mandal)) : '') + '</div>' +
+    '</td>' +
+    '<td>' +
+      '<div style="font-size:13px;font-weight:600;color:var(--ink)">' + esc(t.category_label || '') + '</div>' +
+    '</td>' +
+    '<td>' +
+      '<div style="font-size:13px;font-weight:500;color:var(--ink2)">' + esc(t.team_label || '') + '</div>' +
+    '</td>' +
+    '<td style="white-space:nowrap">' +
+      statusPill(t.status) + escBadge +
+    '</td>' +
+    '<td style="white-space:nowrap">' +
+      '<div style="font-weight:600;font-size:12.5px;color:var(--ink);letter-spacing:-0.01em">' + raisedTime + '</div>' +
+      '<div class="muted" style="font-size:11px;margin-top:2px;display:flex;align-items:center;gap:4px">' +
+        '<span style="display:inline-block;width:5px;height:5px;border-radius:50%;background:#94a3b8"></span>' +
+        '<span>Raised</span>' +
+      '</div>' +
+    '</td>' +
+    '<td style="white-space:nowrap">' +
+      '<div>' + tatPill(t) + '</div>' +
+      '<div class="muted" style="font-size:11px;margin-top:3px">' +
+        '<span style="opacity:0.75;font-weight:500">Due:</span> ' + dueTime +
+      '</div>' +
+    '</td>' +
+    '<td style="max-width:320px">' +
+      '<div style="font-size:13px;color:var(--ink);line-height:1.45;word-break:break-word">' +
+        esc((t.problem || '').slice(0, 110)) + ((t.problem || '').length > 110 ? '…' : '') +
+      '</div>' +
+    '</td>' +
+  '</tr>';
+}
+
 function updateQueueTableOnly() {
   var tb = document.querySelector('#queue_table_wrap tbody');
   if (!tb) {
@@ -949,18 +1068,7 @@ function updateQueueTableOnly() {
       '<div class="empty" style="padding:30px">No tickets currently in this view.</div>';
     newHTML = '<tr><td colspan="8">' + emptyMsg + '</td></tr>';
   } else {
-    newHTML = ROWS.map(function (t) {
-      var createdTime = t.created_at ? esc(t.created_at.replace('T', ' ').slice(0, 16)) : '—';
-      return '<tr class="row" onclick="openT(' + t.id + ')">' +
-        '<td><b>' + esc(t.ticket_no) + '</b>' + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '<div class="muted">' + esc(t.source) + '</div></td>' +
-        '<td>' + esc(t.mmu_vehicle || '—') + (t.is_chronic_fault ? (' <span class="pill-chronic" title="' + t.chronic_breakdown_count + ' breakdowns in 30 days">⚠️ ' + t.chronic_breakdown_count + 'x in 30d</span>') : '') + '<div class="muted">' + esc(t.district || '') + (t.mandal ? (' · ' + esc(t.mandal)) : '') + '</div></td>' +
-        '<td>' + esc(t.category_label || '') + '</td>' +
-        '<td>' + esc(t.team_label || '') + '</td>' +
-        '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
-        '<td><div style="font-weight:600;font-size:12.5px;color:var(--ink)">' + createdTime + '</div><div class="muted" style="font-size:11px">Recorded</div></td>' +
-        '<td>' + tatPill(t) + '<div class="muted" style="font-size:11px;margin-top:2px"><span style="opacity:0.75">Due:</span> ' + esc(t.due_at ? t.due_at.replace('T', ' ').slice(0, 16) : '—') + '</div></td>' +
-        '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 110)) + '</td></tr>';
-    }).join('');
+    newHTML = ROWS.map(renderQueueRow).join('');
   }
   if (tb.innerHTML !== newHTML) {
     tb.innerHTML = newHTML;
@@ -1094,31 +1202,34 @@ function viewQueue() {
       '<div class="empty" style="padding:30px">No tickets currently in this view.</div>';
     rows = '<tr><td colspan="8">' + emptyMsg + '</td></tr>';
   } else {
-    rows = ROWS.map(function (t) {
-      var createdTime = t.created_at ? esc(t.created_at.replace('T', ' ').slice(0, 16)) : '—';
-      return '<tr class="row" onclick="openT(' + t.id + ')">' +
-        '<td><b>' + esc(t.ticket_no) + '</b>' + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '<div class="muted">' + esc(t.source) + '</div></td>' +
-        '<td>' + esc(t.mmu_vehicle || '—') + (t.is_chronic_fault ? (' <span class="pill-chronic" title="' + t.chronic_breakdown_count + ' breakdowns in 30 days">⚠️ ' + t.chronic_breakdown_count + 'x in 30d</span>') : '') + '<div class="muted">' + esc(t.district || '') + (t.mandal ? (' · ' + esc(t.mandal)) : '') + '</div></td>' +
-        '<td>' + esc(t.category_label || '') + '</td>' +
-        '<td>' + esc(t.team_label || '') + '</td>' +
-        '<td><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + (t.escalated ? ' <span class="pill p-crit">ESC</span>' : '') + '</td>' +
-        '<td><div style="font-weight:600;font-size:12.5px;color:var(--ink)">' + createdTime + '</div><div class="muted" style="font-size:11px">Recorded</div></td>' +
-        '<td>' + tatPill(t) + '<div class="muted" style="font-size:11px;margin-top:2px"><span style="opacity:0.75">Due:</span> ' + esc(t.due_at ? t.due_at.replace('T', ' ').slice(0, 16) : '—') + '</div></td>' +
-        '<td style="max-width:280px">' + esc((t.problem || '').slice(0, 110)) + '</td></tr>';
-    }).join('');
+    rows = ROWS.map(renderQueueRow).join('');
   }
   var pages = Math.max(1, Math.ceil(ROWTOTAL / FILT.page_size));
   var pager = '<div class="pager"><span>' + ROWTOTAL + ' ticket' + (ROWTOTAL === 1 ? '' : 's') + ' &middot; page ' + FILT.page + ' of ' + pages + '</span>' +
     '<button class="btn o sm" ' + (FILT.page <= 1 ? 'disabled' : '') + ' onclick="gotoPage(' + (FILT.page - 1) + ')">&larr; Prev</button>' +
     '<button class="btn o sm" ' + (FILT.page >= pages ? 'disabled' : '') + ' onclick="gotoPage(' + (FILT.page + 1) + ')">Next &rarr;</button></div>';
 
-  var th_t = '<th onclick="sortQueue(\'ticket_no\')" style="cursor:pointer;user-select:none">Ticket ' + (FILT.sort_by === 'ticket_no' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
-  var th_loc = '<th onclick="sortQueue(\'district\')" style="cursor:pointer;user-select:none">MMU / Location ' + (FILT.sort_by === 'district' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
-  var th_s = '<th onclick="sortQueue(\'status\')" style="cursor:pointer;user-select:none">Status ' + (FILT.sort_by === 'status' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
-  var th_c = '<th onclick="sortQueue(\'created_at\')" style="cursor:pointer;user-select:none">Created At ' + (FILT.sort_by === 'created_at' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
-  var th_d = '<th onclick="sortQueue(\'due_at\')" style="cursor:pointer;user-select:none">TAT Due (SLA) ' + (FILT.sort_by === 'due_at' ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;') + '</th>';
+  function thSort(col, label, widthStyle) {
+    var active = FILT.sort_by === col;
+    var icon = active ? (FILT.sort_desc ? '&#8595;' : '&#8593;') : '&#8597;';
+    var activeClass = active ? ' th-sorted' : '';
+    return '<th class="th-sort' + activeClass + '" onclick="sortQueue(\'' + col + '\')"' + (widthStyle ? (' style="' + widthStyle + '"') : '') + '>' +
+      '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">' +
+      '<span>' + label + '</span>' +
+      '<span class="sort-ico' + (active ? ' active' : '') + '">' + icon + '</span>' +
+      '</div></th>';
+  }
 
-  return bar + '<div class="card" id="queue_table_wrap"><div style="overflow-x:auto"><table><thead><tr>' + th_t + th_loc + '<th>Category</th><th>Team</th>' + th_s + th_c + th_d + '<th>Problem Statement</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' + pager;
+  var th_t = thSort('ticket_no', 'Ticket', 'width:145px;min-width:140px');
+  var th_loc = thSort('district', 'MMU / Location', 'min-width:160px');
+  var th_cat = '<th style="min-width:150px">Category</th>';
+  var th_team = '<th style="min-width:150px">Team</th>';
+  var th_s = thSort('status', 'Status', 'width:130px;min-width:125px');
+  var th_c = thSort('created_at', 'Raised At', 'width:165px;min-width:160px');
+  var th_d = thSort('due_at', 'TAT Due (SLA)', 'width:180px;min-width:175px');
+  var th_prob = '<th style="min-width:240px">Problem Statement</th>';
+
+  return bar + '<div class="card" id="queue_table_wrap"><div style="overflow-x:auto"><table class="queue-table"><thead><tr>' + th_t + th_loc + th_cat + th_team + th_s + th_c + th_d + th_prob + '</tr></thead><tbody>' + rows + '</tbody></table></div></div>' + pager;
 }
 
 var FORM_ACCORDION_OPEN = {
@@ -1450,7 +1561,10 @@ function renderT(t, evs) {
       A.push('<button class="btn w" onclick="act(' + t.id + ',\'pending\')">Mark pending</button>');
       A.push('<button class="btn g" onclick="act(' + t.id + ',\'resolve\')">Resolve</button>');
     }
-    if (t.status === 'RESOLVED') A.push('<button class="btn g" onclick="act(' + t.id + ',\'confirm\')">Confirm with MMU</button>');
+    if (t.status === 'RESOLVED') {
+      A.push('<button class="btn g" onclick="act(' + t.id + ',\'confirm\')">Confirm with MMU</button>');
+      A.push('<button class="btn r" onclick="act(' + t.id + ',\'not_resolved\')">Not resolved — return to team</button>');
+    }
     if (t.status === 'CLOSURE_CONFIRMATION') A.push('<button class="btn" onclick="act(' + t.id + ',\'close\')">Close ticket</button>');
     if (t.status !== 'CLOSED' && ME.role !== 'CC_MANAGER') A.push('<button class="btn r" onclick="act(' + t.id + ',\'escalate\')">Escalate to Global Team Executive</button>');
   }
@@ -1488,8 +1602,8 @@ function renderT(t, evs) {
     (t.paused_minutes ? '<span class="pill p-mut">Paused ' + esc(t.paused_minutes) + 'm so far</span>' : '') + '</div>' +
     '<div class="grid2"><div>' + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) +
     row('Caller', (t.caller_name || '') + (t.caller_phone ? (' · ' + t.caller_phone) : '')) + row('Location', t.location) + '</div>' +
-    '<div>' + row('Created', t.created_at) + row('Due (TAT)', t.due_at) + row('Acknowledged', t.acknowledged_at) + row('Resolved', t.resolved_at) +
-    row('Assigned to', t.assignee) + row('Confirmed by', t.confirmed_by) + row('Closed', t.closed_at) + row('Owner', t.owner) +
+    '<div>' + row('Raised At', formatDT(t.created_at)) + row('Due (TAT)', formatDT(t.due_at)) + row('Acknowledged', formatDT(t.acknowledged_at)) + row('Resolved', formatDT(t.resolved_at)) +
+    row('Assigned to', t.assignee) + row('Confirmed by', t.confirmed_by) + row('Closed', formatDT(t.closed_at)) + row('Owner', t.owner) +
     row('Escalation reason', t.escalation_note) + '</div></div>' +
     form + reroute + assignBlock +
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:14px">' + A.join('') + '</div>' +
@@ -1508,6 +1622,12 @@ function act(id, a) {
     var reason = g('a_esc_reason');
     if (!reason) { toast('Enter a reason before escalating'); return; }
     note = reason;
+  }
+  if (a === 'not_resolved') {
+    var reason = prompt('What is still not working / reason for rejection? (required):');
+    if (reason === null) return;
+    if (!reason.trim()) { toast('A reason is required to mark as not resolved'); return; }
+    note = reason.trim();
   }
   var b = {
     id: id, action: a, diagnosis: g('a_diag'), action_taken: g('a_act'), root_cause: g('a_rc'), parts: g('a_parts'),
@@ -1557,8 +1677,18 @@ function uploadAttachment(id) {
   });
 }
 
-/* ---------- notifications ---------- */
-function loadNotifs() { api('GET', '/notifications').then(function (d) { NOTIFS = d.rows || []; renderBell(); if (NOTIF_OPEN) renderNotifPanel(); }).catch(function () { }); }
+function loadNotifs() {
+  api('GET', '/notifications').then(function (d) {
+    var oldUnread = (NOTIFS || []).filter(function (x) { return !x.read_at; }).length;
+    NOTIFS = d.rows || [];
+    var newUnread = (NOTIFS || []).filter(function (x) { return !x.read_at; }).length;
+    if (newUnread > oldUnread && oldUnread !== 0) {
+      playAlertSound('new');
+    }
+    renderBell();
+    if (NOTIF_OPEN) renderNotifPanel();
+  }).catch(function () { });
+}
 function renderBell() {
   var unreadCount = (NOTIFS || []).filter(function (x) { return !x.read_at; }).length;
   var b = document.getElementById('nbadge');
@@ -1624,72 +1754,300 @@ function openNotif(id, ticketId) {
 
 /* ---------- dashboard ---------- */
 function attnGoto(status, scope, priority) {
-  TAB = 'queue'; FILT.status = status || ''; FILT.scope = scope || ''; FILT.priority = priority || '';
-  FILT.mmu_vehicle = ''; FILT.district = ''; FILT.q = ''; FILT.category = ''; FILT.date_from = ''; FILT.date_to = ''; FILT.page = 1; render(); load();
+  TAB = 'queue';
+  FILT.status = status || '';
+  FILT.scope = scope || '';
+  FILT.priority = priority || '';
+  FILT.mmu_vehicle = DASH_FILT.mmu_vehicle || '';
+  FILT.district = DASH_FILT.district || '';
+  if (FILT.district && META && META.districts) {
+    var dObj = META.districts.find(function (d) { return d.name === FILT.district; });
+    if (dObj) FILT.district_id = dObj.id;
+  } else {
+    FILT.district_id = '';
+  }
+  FILT.team = DASH_FILT.team || '';
+  FILT.date_preset = DASH_FILT.date_preset || '';
+  FILT.date_from = DASH_FILT.date_from || '';
+  FILT.date_to = DASH_FILT.date_to || '';
+  FILT.q = '';
+  FILT.category = '';
+  FILT.page = 1;
+  saveState();
+  render();
+  load(true);
 }
+
 function exportDash() {
-  downloadExcel('/reports/summary.xlsx?period=daily', 'Dashboard_Summary.xlsx');
+  var qs = dashQS();
+  var url = '/reports/summary.xlsx' + (qs ? qs : '?period=daily');
+  downloadExcel(url, 'Dashboard_Summary.xlsx');
 }
+
+function onDashTimePresetChange(preset) {
+  var customWrap = document.getElementById('dash_custom_dates');
+  if (preset === 'custom') {
+    DASH_FILT.date_preset = 'custom';
+    if (customWrap) customWrap.style.display = 'flex';
+    return;
+  }
+  if (customWrap) customWrap.style.display = 'none';
+  DASH_FILT.date_preset = preset;
+  applyDashFilters();
+}
+
+function applyDashFilters() {
+  var distEl = document.getElementById('dash_dist');
+  DASH_FILT.district = distEl ? distEl.value : '';
+
+  var teamEl = document.getElementById('dash_team');
+  DASH_FILT.team = teamEl ? teamEl.value : '';
+
+  var vehEl = document.getElementById('dash_veh');
+  DASH_FILT.mmu_vehicle = vehEl ? vehEl.value.trim() : '';
+
+  var timeSel = (document.getElementById('dash_time') ? document.getElementById('dash_time').value : '') || DASH_FILT.date_preset || '';
+  DASH_FILT.date_preset = timeSel;
+  var now = new Date();
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  var fmtDate = function (d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
+
+  if (timeSel === 'today') {
+    var today = fmtDate(now);
+    DASH_FILT.date_from = today;
+    DASH_FILT.date_to = today;
+  } else if (timeSel === 'yesterday') {
+    var y = new Date();
+    y.setDate(y.getDate() - 1);
+    var yDate = fmtDate(y);
+    DASH_FILT.date_from = yDate;
+    DASH_FILT.date_to = yDate;
+  } else if (timeSel === '24h') {
+    var yesterday = new Date(now.getTime() - 24 * 3600 * 1000);
+    DASH_FILT.date_from = fmtDate(yesterday);
+    DASH_FILT.date_to = fmtDate(now);
+  } else if (timeSel === '7d') {
+    var last7 = new Date(now.getTime() - 7 * 24 * 3600 * 1000);
+    DASH_FILT.date_from = fmtDate(last7);
+    DASH_FILT.date_to = fmtDate(now);
+  } else if (timeSel === '30d') {
+    var last30 = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+    DASH_FILT.date_from = fmtDate(last30);
+    DASH_FILT.date_to = fmtDate(now);
+  } else if (timeSel === 'custom') {
+    DASH_FILT.date_from = gv('dash_from') || '';
+    DASH_FILT.date_to = gv('dash_to') || '';
+  } else {
+    DASH_FILT.date_from = '';
+    DASH_FILT.date_to = '';
+  }
+
+  saveState();
+  load(true);
+}
+
+function clearDashFilters() {
+  DASH_FILT.district = '';
+  DASH_FILT.team = '';
+  DASH_FILT.mmu_vehicle = '';
+  DASH_FILT.date_preset = '';
+  DASH_FILT.date_from = '';
+  DASH_FILT.date_to = '';
+  try {
+    sessionStorage.removeItem('ccc_dash_filt');
+    localStorage.removeItem('ccc_dash_filt');
+  } catch (e) {}
+  saveState();
+  load(true);
+}
+
 function viewDash() {
   if (!DASH) return '<div class="card"><div class="empty">Loading daily monitoring…</div></div>';
   var t = DASH.today || {}, k = DASH.kpi || {};
-  var kpi = function (n, l, c) { return '<div class="kpi"><div class="n" style="color:' + (c || 'var(--pur)') + '">' + esc(n == null ? '—' : n) + '</div><div class="l">' + esc(l) + '</div></div>'; };
-  var attn = function (n, l, c, onclick) { return '<button class="c" onclick="' + onclick + '"><div class="n" style="color:' + c + '">' + esc(n == null ? 0 : n) + '</div><div class="l">' + esc(l) + '</div></button>'; };
+
+  var timeOptions = [
+    { id: '', label: 'Today (Default)' },
+    { id: 'today', label: 'Today' },
+    { id: 'yesterday', label: 'Yesterday' },
+    { id: '24h', label: 'Last 24 Hours' },
+    { id: '7d', label: 'Last 7 Days' },
+    { id: '30d', label: 'Last 30 Days' },
+    { id: 'custom', label: 'Custom Date Range...' }
+  ];
+
+  var timeSelectHtml = timeOptions.map(function (o) {
+    return '<option value="' + o.id + '"' + (DASH_FILT.date_preset === o.id ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+  }).join('');
+
+  var distSelectHtml = '<option value="">All Districts (Statewide)</option>' +
+    ((META && META.districts) || []).map(function (d) {
+      return '<option value="' + esc(d.name) + '"' + (DASH_FILT.district === d.name ? ' selected' : '') + '>' + esc(d.name) + '</option>';
+    }).join('');
+
+  var teamSelectHtml = '<option value="">All Departments</option>' +
+    Object.keys((META && META.teams) || {}).map(function (k) {
+      return '<option value="' + esc(k) + '"' + (DASH_FILT.team === k ? ' selected' : '') + '>' + esc(META.teams[k]) + '</option>';
+    }).join('');
+
+  var hasActiveFilters = !!(DASH_FILT.district || DASH_FILT.team || DASH_FILT.mmu_vehicle || (DASH_FILT.date_preset && DASH_FILT.date_preset !== 'today') || DASH_FILT.date_from);
+
+  var kpi = function (n, l, c) {
+    return '<div class="kpi">' +
+      '<div class="n" style="color:' + (c || 'var(--pur)') + '">' + esc(n == null ? '—' : n) + '</div>' +
+      '<div class="l">' + esc(l) + '</div>' +
+    '</div>';
+  };
+
+  var attn = function (n, l, c, onclick) {
+    return '<button class="c" onclick="' + onclick + '">' +
+      '<div class="n" style="color:' + c + '">' + esc(n == null ? 0 : n) + '</div>' +
+      '<div class="l">' + esc(l) + '</div>' +
+    '</button>';
+  };
+
   var tbl = function (title, rows, cols) {
-    // A column's 3rd element (raw:true) marks its cell as already-built HTML
-    // (a link/button) that must not be re-escaped - everything else is
-    // treated as plain text and escaped, same as before.
+    var body = (rows && rows.length) ?
+      rows.map(function (r) {
+        return '<tr>' + cols.map(function (c) {
+          var v = c[1](r);
+          return '<td>' + (c[2] ? v : esc(v)) + '</td>';
+        }).join('') + '</tr>';
+      }).join('') :
+      '<tr><td colspan="' + cols.length + '" style="text-align:center;color:var(--ink2);padding:24px 12px">No ticket records logged for this filter selection</td></tr>';
+
     return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">' + esc(title) + '</h4>' +
       '<table><thead><tr>' + cols.map(function (c) { return '<th>' + esc(c[0]) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      (rows || []).map(function (r) { return '<tr>' + cols.map(function (c) { var v = c[1](r); return '<td>' + (c[2] ? v : esc(v)) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      body +
       '</tbody></table></div>';
   };
-  return '<div class="card" style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">' +
-    '<h4 style="margin:0;font-size:14px">Attention required</h4>' +
-    '<button class="btn g sm" onclick="exportDash()">Export Summary (Excel)</button>' +
-    '</div><div class="attn">' +
+
+  var ticketsLabel = (DASH_FILT.date_from || DASH_FILT.date_to) ? 'Tickets in window' : 'Tickets today';
+  var closedLabel = (DASH_FILT.date_from || DASH_FILT.date_to) ? 'Closed in window' : 'Closed today';
+
+  return '<div class="card" style="margin-bottom:20px;padding:16px 20px;border-radius:12px;background:#fff;border:1px solid #E5E7EB;box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #F3F4F6;flex-wrap:wrap;gap:10px">' +
+      '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px">' +
+        '<span>📊 Daily Monitoring &amp; Operational Surveillance</span>' +
+        '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#059669;background:#ECFDF5;border:1px solid #A7F3D0;padding:2px 8px;border-radius:12px"><span style="width:6px;height:6px;border-radius:50%;background:#10B981"></span> Live</span>' +
+        (hasActiveFilters ? '<span style="font-size:11px;color:var(--pur);background:#F5F3FF;border:1px solid #DDD6FE;padding:2px 8px;border-radius:12px;font-weight:600">Active Filters</span>' : '') +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:8px">' +
+        '<button class="qf-btn qf-btn-export" onclick="exportDash()" title="Export filtered dashboard summary report to Excel" style="height:34px;padding:0 14px;font-size:12.5px">' +
+          '<span style="margin-right:6px">📥</span> Export Summary (Excel)' +
+        '</button>' +
+      '</div>' +
+    '</div>' +
+
+    '<div class="qf-grid">' +
+      '<div class="qf-fld" style="flex:1.1;min-width:160px">' +
+        '<label class="qf-label">Time Window</label>' +
+        '<select id="dash_time" class="qf-select" onchange="onDashTimePresetChange(this.value)">' +
+          timeSelectHtml +
+        '</select>' +
+      '</div>' +
+
+      '<div class="qf-fld" style="flex:1.2;min-width:170px">' +
+        '<label class="qf-label">District</label>' +
+        '<select id="dash_dist" class="qf-select" onchange="applyDashFilters()">' +
+          distSelectHtml +
+        '</select>' +
+      '</div>' +
+
+      '<div class="qf-fld" style="flex:1.2;min-width:170px">' +
+        '<label class="qf-label">Department</label>' +
+        '<select id="dash_team" class="qf-select" onchange="applyDashFilters()">' +
+          teamSelectHtml +
+        '</select>' +
+      '</div>' +
+
+      '<div class="qf-fld" style="flex:1;min-width:140px">' +
+        '<label class="qf-label">MMU / Vehicle</label>' +
+        '<input id="dash_veh" class="qf-input" type="text" placeholder="e.g. APFE2929" value="' + esc(DASH_FILT.mmu_vehicle || '') + '" onkeydown="if(event.key===\'Enter\')applyDashFilters()">' +
+      '</div>' +
+
+      '<div class="qf-fld" style="flex:0 0 auto">' +
+        '<label class="qf-label" style="visibility:hidden">Actions</label>' +
+        '<div style="display:flex;gap:8px;align-items:center">' +
+          '<button class="qf-btn qf-btn-primary" onclick="applyDashFilters()" style="height:38px;padding:0 18px">Filter</button>' +
+          '<button class="qf-btn qf-btn-outline" onclick="clearDashFilters()" style="height:38px;padding:0 14px" title="Reset all dashboard filters">Reset</button>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    '<div id="dash_custom_dates" style="display:' + ((DASH_FILT.date_preset === 'custom' || (DASH_FILT.date_from && !DASH_FILT.date_preset)) ? 'flex' : 'none') + ';gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid #F3F4F6;align-items:flex-end;flex-wrap:wrap">' +
+      '<div class="qf-fld" style="flex:1;min-width:150px;max-width:220px">' +
+        '<label class="qf-label">Date From</label>' +
+        '<input id="dash_from" class="qf-input" type="date" value="' + esc(DASH_FILT.date_from || '') + '">' +
+      '</div>' +
+      '<div class="qf-fld" style="flex:1;min-width:150px;max-width:220px">' +
+        '<label class="qf-label">Date To</label>' +
+        '<input id="dash_to" class="qf-input" type="date" value="' + esc(DASH_FILT.date_to || '') + '">' +
+      '</div>' +
+      '<button class="qf-btn qf-btn-primary" onclick="applyDashFilters()" style="height:38px;padding:0 16px">Apply Dates</button>' +
+    '</div>' +
+  '</div>' +
+
+  '<div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 12px 2px">' +
+    '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">⚡ Attention Required</div>' +
+    '<span style="font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:0.04em;text-transform:uppercase">Click card to view queue</span>' +
+  '</div>' +
+
+  '<div class="attn">' +
     attn(t.p1_open, 'P1 open', "var(--crit)", "attnGoto('open','','P1')") +
     attn(t.breached, 'TAT breached', "var(--crit)", "attnGoto('open','breach','')") +
-    attn(t.critical, 'Critical', "#a3300c", "attnGoto('open','critical','')") +
-    attn(t.at_risk, 'At risk', "var(--warn)", "attnGoto('open','risk','')") +
+    attn(t.critical, 'Critical (<15m)', "#a3300c", "attnGoto('open','critical','')") +
+    attn(t.at_risk, 'At risk (<60m)', "var(--warn)", "attnGoto('open','risk','')") +
     attn(t.pending, 'Pending', "var(--org)", "attnGoto('PENDING','','')") +
     attn(t.awaiting_confirmation, 'Awaiting MMU confirmation', "var(--pur)", "attnGoto('RESOLVED','','')") +
     attn(t.escalated, 'Escalated', "var(--mag)", "attnGoto('open','escalated','')") +
     attn(t.escalated_from_field, 'Escalated from field', "var(--mag)", "attnGoto('open','escalated','')") +
     attn(t.unassigned, 'Unassigned', "var(--org)", "attnGoto('open','unassigned','')") +
-    '</div>' +
-    '<div class="kpis">' +
-    kpi(t.tickets, 'Tickets today') + kpi(t.open, 'Open tickets') + kpi(t.closed, 'Closed today', 'var(--ok)') +
-    kpi(t.breached, 'TAT breached', 'var(--crit)') + kpi(t.at_risk, 'At risk', 'var(--warn)') + kpi(t.escalated, 'Escalated', 'var(--mag)') +
-    '</div>' +
-    '<div class="kpis">' +
+  '</div>' +
+
+  '<div style="display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px 2px">' +
+    '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">📊 Performance Metrics &amp; SLA Adherence</div>' +
+  '</div>' +
+
+  '<div class="kpis">' +
+    kpi(t.tickets, ticketsLabel) +
+    kpi(t.open, 'Open tickets') +
+    kpi(t.closed, closedLabel, 'var(--ok)') +
+    kpi(t.breached, 'TAT breached', 'var(--crit)') +
+    kpi(t.at_risk, 'At risk', 'var(--warn)') +
+    kpi(t.escalated, 'Escalated', 'var(--mag)') +
+  '</div>' +
+
+  '<div class="kpis">' +
     kpi(k.tat_compliance_pct == null ? '—' : k.tat_compliance_pct + '%', 'TAT compliance', 'var(--ok)') +
     kpi(k.tat_breach_pct == null ? '—' : k.tat_breach_pct + '%', 'TAT breach %', 'var(--crit)') +
     kpi(k.avg_ack_mins == null ? '—' : k.avg_ack_mins + 'm', 'Avg acknowledgement') +
     kpi(k.avg_resolution_mins == null ? '—' : k.avg_resolution_mins + 'm', 'Avg resolution') +
-    kpi(k.escalation_pct + '%', 'Escalation %', 'var(--mag)') + kpi(k.closed_total, 'Closed (all time)') +
-    '</div>' +
-    (DASH.chronic_equipment && DASH.chronic_equipment.length ?
-      ('<div class="card" style="margin-bottom:14px;border-left:4px solid #DC2626">' +
-        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">' +
-          '<div><div style="font-weight:800;font-size:15px;color:#991B1B">⚠️ Chronic Failing Units Watchdog (≥ 3 Breakdowns in 30 Days)</div>' +
-          '<div class="muted" style="font-size:12px;margin-top:2px">Identifies high-failure analyzers and MMUs requiring manufacturer warranty replacement / root-cause overhaul.</div></div>' +
-          '<div class="pill-chronic" style="padding:4px 10px;font-size:12px">⚠️ ' + DASH.chronic_equipment.length + ' Chronic Unit' + (DASH.chronic_equipment.length === 1 ? '' : 's') + ' Flagged</div>' +
-        '</div>' +
-        '<div style="overflow-x:auto"><table><thead><tr><th>MMU Vehicle</th><th>District</th><th>Breakdowns (30d)</th><th>Open Status</th><th>Failing Issue Types</th><th>Last Breakdown</th><th>Action</th></tr></thead><tbody>' +
-        DASH.chronic_equipment.map(function (c) {
-          return '<tr>' +
-            '<td><b>' + esc(c.mmu_vehicle) + '</b></td>' +
-            '<td>' + esc(c.district || '—') + '</td>' +
-            '<td><span class="pill-chronic">⚠️ ' + esc(c.n) + ' times</span></td>' +
-            '<td>' + (c.open_n > 0 ? ('<span class="pill p-crit">' + c.open_n + ' Open</span>') : '<span class="pill p-ok">Resolved</span>') + '</td>' +
-            '<td>' + esc((c.categories || '').split(',').map(function (cat) { return (META.routing[cat] || {}).label || cat; }).join(', ')) + '</td>' +
-            '<td>' + esc(c.last_breakdown_at || '—') + '</td>' +
-            '<td><button class="btn sm" onclick="viewVehicleTickets(\'' + esc(c.mmu_vehicle) + '\')">View Tickets</button></td>' +
-          '</tr>';
-        }).join('') +
-        '</tbody></table></div></div>') : '') +
-    '<div class="grid2">' +
+    kpi((k.escalation_pct == null ? '—' : k.escalation_pct + '%'), 'Escalation %', 'var(--mag)') +
+    kpi(k.closed_total == null ? '—' : k.closed_total, 'Closed (all time)') +
+  '</div>' +
+
+  (DASH.chronic_equipment && DASH.chronic_equipment.length ?
+    ('<div class="card" style="margin-bottom:14px;border-left:4px solid #DC2626">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">' +
+        '<div><div style="font-weight:800;font-size:15px;color:#991B1B">⚠️ Chronic Failing Units Watchdog (≥ 3 Breakdowns in 30 Days)</div>' +
+        '<div class="muted" style="font-size:12px;margin-top:2px">Identifies high-failure analyzers and MMUs requiring manufacturer warranty replacement / root-cause overhaul.</div></div>' +
+        '<div class="pill-chronic" style="padding:4px 10px;font-size:12px">⚠️ ' + DASH.chronic_equipment.length + ' Chronic Unit' + (DASH.chronic_equipment.length === 1 ? '' : 's') + ' Flagged</div>' +
+      '</div>' +
+      '<div style="overflow-x:auto"><table><thead><tr><th>MMU Vehicle</th><th>District</th><th>Breakdowns (30d)</th><th>Open Status</th><th>Failing Issue Types</th><th>Last Breakdown</th><th>Action</th></tr></thead><tbody>' +
+      DASH.chronic_equipment.map(function (c) {
+        return '<tr>' +
+          '<td><b>' + esc(c.mmu_vehicle) + '</b></td>' +
+          '<td>' + esc(c.district || '—') + '</td>' +
+          '<td><span class="pill-chronic">⚠️ ' + esc(c.n) + ' times</span></td>' +
+          '<td>' + (c.open_n > 0 ? ('<span class="pill p-crit">' + c.open_n + ' Open</span>') : '<span class="pill p-ok">Resolved</span>') + '</td>' +
+          '<td>' + esc((c.categories || '').split(',').map(function (cat) { return (META.routing[cat] || {}).label || cat; }).join(', ')) + '</td>' +
+          '<td>' + esc(c.last_breakdown_at || '—') + '</td>' +
+          '<td><button class="btn sm" onclick="viewVehicleTickets(\'' + esc(c.mmu_vehicle) + '\')">View Tickets</button></td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div></div>') : '') +
+
+  '<div class="grid2">' +
     tbl('Tickets by category', DASH.by_category, [['Category', function (r) { return (META.routing[r.category] || {}).label || r.category; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }]]) +
     tbl('Tickets by responsible team', DASH.by_team, [['Team', function (r) { return META.teams[r.team] || r.team; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }], ['Breached', function (r) { return r.breach_n; }]]) +
     tbl('By status', DASH.by_status, [['Status', function (r) { return (r.status || '').replace(/_/g, ' '); }], ['Count', function (r) { return r.n; }]]) +
@@ -1699,7 +2057,7 @@ function viewDash() {
       ['Action', function (r) { return '<button class="btn sm o" onclick="viewVehicleTickets(\'' + esc(r.mmu_vehicle) + '\')">View All</button>'; }, true]
     ]) +
     tbl('Daily volume (14 days)', DASH.daily, [['Date', function (r) { return r.d; }], ['Created', function (r) { return r.n; }], ['Closed', function (r) { return r.closed_n; }]]) +
-    '</div>';
+  '</div>';
 }
 
 /* ---------- routing matrix ---------- */
@@ -1886,6 +2244,7 @@ function syncLTOutbox(manual) {
     playAlertSound('new');
     toast('✅ Outbox Ticket ' + d.ticket_no + ' synced successfully!');
     if (TAB === 'mine') loadLTMine();
+    else render();
     if (getLTOutbox().length > 0) {
       setTimeout(function () { syncLTOutbox(false); }, 600);
     }
@@ -2134,11 +2493,17 @@ function viewLTMine() {
   var ticketsHtml = LT_TICKETS.map(function (t) {
     var photo = t.photo_path ? ('<img src="/uploads/' + esc(t.photo_path) + '" style="max-width:140px;max-height:140px;border-radius:10px;margin-top:10px;object-fit:cover">') : '';
     var actions = '';
-    if (t.status === 'RESOLVED') actions = '<button class="btn g sm" onclick="ltConfirmFixed(' + t.id + ')">Confirm — it\'s fixed</button>';
-    else if (t.status === 'CLOSED') actions = '<button class="btn o sm" onclick="ltReopenSame(' + t.id + ')">Reopen — broke again</button>';
+    if (t.status === 'RESOLVED') {
+      actions = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
+        '<button class="btn g sm" onclick="ltConfirmFixed(' + t.id + ')">✓ Confirmed — It\'s Fixed</button>' +
+        '<button class="btn r sm" onclick="openLTNotResolvedModal(' + t.id + ',\'' + esc(t.ticket_no) + '\')">✕ Not Resolved</button>' +
+        '</div>';
+    } else if (t.status === 'CLOSED') {
+      actions = '<button class="btn o sm" onclick="ltReopenSame(' + t.id + ')">Reopen — broke again</button>';
+    }
     return '<div class="card" style="margin-bottom:12px">' +
       '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
-      '<div><b>' + esc(t.ticket_no) + '</b><div class="muted">' + esc(t.category_label || '') + '</div></div>' +
+      '<div><b>' + esc(t.ticket_no) + '</b><div class="muted">' + esc(t.category_label || '') + (t.created_at ? (' &middot; <span style="font-weight:600;color:var(--ink)">Raised: ' + formatDT(t.created_at) + '</span>') : '') + '</div></div>' +
       '<div style="text-align:right"><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span> ' + tatPill(t) + '</div></div>' +
       '<div style="margin-top:8px">' + esc(t.problem || '') + '</div>' +
       (t.resolution ? ('<div class="muted" style="margin-top:8px"><b>Resolution:</b> ' + esc(t.resolution) + '</div>') : '') +
@@ -2146,6 +2511,43 @@ function viewLTMine() {
   }).join('');
 
   return outboxHtml + ticketsHtml;
+}
+
+function openLTNotResolvedModal(id, ticketNo) {
+  document.getElementById('modal').innerHTML = '<div class="ovl" onclick="if(event.target===this)closeModal()"><div class="sheet" style="max-width:540px">' +
+    '<div class="sh" style="background:#dc2626;color:#fff"><div><div style="font-size:17px;font-weight:800">Issue Still Not Resolved</div>' +
+    '<div style="font-size:12.5px;opacity:.9;margin-top:2px">Ticket: <b>' + esc(ticketNo) + '</b> &middot; Returning to Support Team</div></div>' +
+    '<button class="x" onclick="closeModal()">&times;</button></div>' +
+    '<div class="sb">' +
+      '<p style="margin:0 0 14px;color:#4b5563;font-size:13.5px;line-height:1.5">Please specify what is still not working or why this problem is not resolved. The ticket will be returned immediately to the assigned team and CDA as <b>In Progress</b> for further investigation.</p>' +
+      '<div class="fld">' +
+        '<label style="font-weight:700">Reason / Observations (Required) *</label>' +
+        '<textarea id="lt_nr_reason" rows="4" placeholder="Describe in detail what is still failing or not working..." style="width:100%;box-sizing:border-box"></textarea>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">' +
+        '<button class="btn o" onclick="closeModal()">Cancel</button>' +
+        '<button class="btn r" onclick="submitLTNotResolved(' + id + ')">Send Back to Support Team</button>' +
+      '</div>' +
+    '</div></div></div>';
+  setTimeout(function () {
+    var el = document.getElementById('lt_nr_reason');
+    if (el) el.focus();
+  }, 50);
+}
+
+function submitLTNotResolved(id) {
+  var reasonEl = document.getElementById('lt_nr_reason');
+  var reason = reasonEl ? reasonEl.value.trim() : '';
+  if (!reason) return toast('Please describe why the issue is not resolved');
+  api('POST', '/ticket/action', { id: id, action: 'not_resolved', note: reason })
+    .then(function () {
+      toast('⚠️ Ticket returned to support team as In Progress');
+      closeModal();
+      loadLTMine();
+    })
+    .catch(function (e) {
+      toast(typeof e === 'string' ? e : 'Could not submit action');
+    });
 }
 
 function ltConfirmFixed(id) {
