@@ -23,9 +23,14 @@ from app.models.ticket_assignment import TicketAssignment
 from app.models.routing_rule import RoutingRule
 from app.models.api_assignment_log import ApiAssignmentLog
 from app.models.assignment_exception import AssignmentException
+from app.models.ext_vehicle import ExtVehicle
+from app.models.ext_employee import ExtEmployee
+from app.models.emp_hierarchy import EmpHierarchy
+from app.models.sync_run import SyncRun
 from app.db.database import Base
 
 __all__ = ["User", "Ticket", "Event", "Config", "Notification", "Team", "Category", "AdminEvent",
            "District", "Mandal", "Zone", "Vehicle", "Reason", "Machine", "Attachment", "TicketType",
            "Priority", "PriorityMatrix", "BusinessCalendar", "CalendarHoliday", "SlaPolicy",
-           "TicketAssignment", "RoutingRule", "ApiAssignmentLog", "AssignmentException", "Base"]
+           "TicketAssignment", "RoutingRule", "ApiAssignmentLog", "AssignmentException",
+           "ExtVehicle", "ExtEmployee", "EmpHierarchy", "SyncRun", "Base"]

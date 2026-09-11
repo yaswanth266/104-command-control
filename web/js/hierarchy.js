@@ -4,6 +4,7 @@
 var ADMIN_ROUTING_RULES = [];
 var ADMIN_HIERARCHY_CONFIG = null;
 var ADMIN_ASSIGNMENT_EXCEPTIONS = [];
+var ADMIN_SYNC_STATUS = null;
 var EXC_FILTER = 'OPEN';
 
 function loadAdminRoutingRules() {
@@ -26,6 +27,20 @@ function loadAdminRoutingRules() {
   });
 }
 
+/* Per-level occupant precedence at resolution time (see
+   app/services/hierarchy.py's _resolve_level): username > role > team_code
+   > default ladder - so each level gets all three input types, and an
+   admin can mix them freely across levels (the client's example: L1->OE
+   role, L2->DM role, L3->Helpdesk team, L4->Development team). */
+function _levelSummary(r, n) {
+  var u = r['l' + n + '_username'], role = r['l' + n + '_role'], t = r['l' + n + '_team_code'];
+  var parts = [];
+  if (u) parts.push(u);
+  if (role) parts.push('role:' + role);
+  if (t) parts.push('team:' + t);
+  return parts.join(', ');
+}
+
 function viewAdminRoutingRules() {
   var catLabel = function (code) { var c = ADMIN_CATEGORIES.find(function (x) { return x.code === code; }); return c ? c.label : code; };
   var zoneLabel = function (id) { var z = (ADMIN_ZONES || []).find(function (x) { return x.id === id; }); return z ? z.name : ''; };
@@ -36,8 +51,8 @@ function viewAdminRoutingRules() {
       '<td>' + esc(r.subcategory_code ? subcatLabel(r.subcategory_code) : '— any —') + '</td>' +
       '<td>' + esc(distLabel(r.district_id) || '— any —') + '</td>' +
       '<td>' + esc(zoneLabel(r.zone_id) || '— any —') + '</td>' +
-      '<td>' + esc(r.l1_username || (r.l1_team_code || '')) + '</td><td>' + esc(r.l2_username || '') + '</td>' +
-      '<td>' + esc(r.l3_username || '') + '</td><td>' + esc(r.l4_username || '') + '</td>' +
+      '<td>' + esc(_levelSummary(r, 1)) + '</td><td>' + esc(_levelSummary(r, 2)) + '</td>' +
+      '<td>' + esc(_levelSummary(r, 3)) + '</td><td>' + esc(_levelSummary(r, 4)) + '</td>' +
       '<td>' + (r.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
       '<td><button class="btn ' + (r.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleRoutingRule(\'' + r.code + '\',' + (!r.is_active) + ')">' + (r.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
@@ -46,8 +61,14 @@ function viewAdminRoutingRules() {
   var distOpts = '<option value="">— Any district —</option>' + (ADMIN_DISTRICTS || []).filter(function (d) { return d.is_active; }).map(function (d) { return '<option value="' + d.id + '">' + esc(d.name) + '</option>'; }).join('');
   var zoneOpts = '<option value="">— Any zone —</option>' + (ADMIN_ZONES || []).filter(function (z) { return z.is_active; }).map(function (z) { return '<option value="' + z.id + '">' + esc(z.name) + '</option>'; }).join('');
 
+  var levelFields = [1, 2, 3, 4].map(function (n) {
+    return '<div class="fld"><label>L' + n + ' - Local username</label><input id="rr_l' + n + '_user" placeholder="username"></div>' +
+      '<div class="fld"><label>L' + n + ' - API role (e.g. OE, DM)</label><input id="rr_l' + n + '_role" placeholder="OE"></div>' +
+      '<div class="fld"><label>L' + n + ' - Team / department</label><input id="rr_l' + n + '_team" placeholder="HELPDESK"></div>';
+  }).join('');
+
   return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Routing Rules</h4>' +
-    '<div class="muted" style="margin-bottom:10px">Explicit L1-L4 mapping for a Category, optionally narrowed to a Sub-Category, District and/or Zone - used when the Hierarchy Source is set to Local Mapping. The most specific active match wins (Sub-Category beats Category-only; District beats Zone). Any level left blank falls back to the default ladder: L1 = the category\'s routed team, L2 = that team\'s manager, L3 = L2\'s reporting manager, L4 = the Global Team Executive.</div>' +
+    '<div class="muted" style="margin-bottom:10px">Explicit L1-L4 mapping for a Category, optionally narrowed to a Sub-Category, District and/or Zone - used when the Hierarchy Source is set to Local Mapping. The most specific active match wins (Sub-Category beats Category-only; District beats Zone). Each level resolves, in order: an explicit local username &gt; an external-API organizational role (OE/DM/RM/SPH/…, resolved via the synced hierarchy cache against the ticket\'s caller) &gt; a local team/department &gt; the default ladder (L1 = the category\'s routed team, L2 = that team\'s manager, L3 = L2\'s reporting manager, L4 = the Global Team Executive).</div>' +
     '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Category</th><th>Sub-Category</th><th>District</th><th>Zone</th><th>L1</th><th>L2</th><th>L3</th><th>L4</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
     '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add routing rule</h4><div class="grid3">' +
     '<div class="fld"><label>Code</label><input id="rr_code" placeholder="MACHINE-NORTH"></div>' +
@@ -55,10 +76,8 @@ function viewAdminRoutingRules() {
     '<div class="fld"><label>Sub-Category (optional)</label><select id="rr_subcategory">' + subcatOpts + '</select></div>' +
     '<div class="fld"><label>District (optional)</label><select id="rr_district">' + distOpts + '</select></div>' +
     '<div class="fld"><label>Zone (optional)</label><select id="rr_zone">' + zoneOpts + '</select></div>' +
-    '<div class="fld"><label>L1 username (optional)</label><input id="rr_l1" placeholder="username"></div>' +
-    '<div class="fld"><label>L2 username (optional)</label><input id="rr_l2" placeholder="username"></div>' +
-    '<div class="fld"><label>L3 username (optional)</label><input id="rr_l3" placeholder="username"></div>' +
-    '<div class="fld"><label>L4 username (optional)</label><input id="rr_l4" placeholder="username"></div>' +
+    '<div></div>' +
+    levelFields +
     '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateRoutingRule()">Add rule</button></div>' +
     '</div></div>';
 }
@@ -69,12 +88,16 @@ function adminCreateRoutingRule() {
   var district = document.getElementById('rr_district').value;
   var zone = document.getElementById('rr_zone').value;
   if (!code) return toast('Code is required');
-  api('POST', '/admin/routing-rules', {
+  var body = {
     code: code, category_code: category, subcategory_code: subcategory || undefined,
     district_id: district ? +district : undefined, zone_id: zone ? +zone : undefined,
-    l1_username: gv('rr_l1') || undefined, l2_username: gv('rr_l2') || undefined,
-    l3_username: gv('rr_l3') || undefined, l4_username: gv('rr_l4') || undefined,
-  }).then(function () { toast('Routing rule added'); loadAdminRoutingRules(); })
+  };
+  [1, 2, 3, 4].forEach(function (n) {
+    body['l' + n + '_username'] = gv('rr_l' + n + '_user') || undefined;
+    body['l' + n + '_role'] = gv('rr_l' + n + '_role') || undefined;
+    body['l' + n + '_team_code'] = gv('rr_l' + n + '_team') || undefined;
+  });
+  api('POST', '/admin/routing-rules', body).then(function () { toast('Routing rule added'); loadAdminRoutingRules(); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminToggleRoutingRule(code, active) {
@@ -87,8 +110,11 @@ function adminToggleRoutingRule(code, active) {
 function loadAdminHierarchyConfig() {
   api('GET', '/admin/hierarchy/config').then(function (d) {
     ADMIN_HIERARCHY_CONFIG = d;
-    ADMIN_LOADED.hierarchysource = true;
-    if (ADMIN_TAB === 'hierarchysource') render();
+    api('GET', '/admin/sync/status').then(function (s) {
+      ADMIN_SYNC_STATUS = s;
+      ADMIN_LOADED.hierarchysource = true;
+      if (ADMIN_TAB === 'hierarchysource') render();
+    });
   });
 }
 
@@ -114,8 +140,8 @@ function viewAdminHierarchySource() {
     '</div><div id="hc_test_result" class="muted" style="margin-top:8px"></div>' +
     '</div>' +
 
-    '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">Vehicle &amp; Employee Lookup</h4>' +
-    '<div class="muted" style="margin-bottom:10px">Same external system and auth above, two more read-only endpoints on it. Register Call uses these to auto-fill Segment Number/Secretariat/Village from the selected MMU vehicle, and Designation/Employee ID from a searched employee. Leave a URL blank to keep those fields manual-entry only - a ticket is never blocked on either lookup.</div>' +
+    '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Vehicle &amp; Employee Lookup</h4>' +
+    '<div class="muted" style="margin-bottom:10px">Same external system and auth above, two more read-only endpoints on it. Register Call uses these to auto-fill Segment Number/Secretariat/Village from the selected MMU vehicle, and Designation/Employee ID from a searched employee. Leave a URL blank to keep those fields manual-entry only - a ticket is never blocked on either lookup. Checked only on a cache miss once Master-Data Sync below is populated.</div>' +
     '<div class="grid2">' +
     '<div class="fld"><label>Vehicle lookup URL</label><input id="hc_vehicle_url" value="' + esc(cfg.vehicle_lookup_url || '') + '" placeholder="https://hr.example.org/api/vehicles"></div>' +
     '<div class="fld"><label>Employee lookup URL</label><input id="hc_employee_url" value="' + esc(cfg.employee_lookup_url || '') + '" placeholder="https://hr.example.org/api/employees"></div>' +
@@ -125,7 +151,51 @@ function viewAdminHierarchySource() {
     (cfg.vehicle_lookup_url ? '<button class="btn o" onclick="adminTestLookupApi(\'vehicle\')">Test vehicle lookup</button>' : '') +
     (cfg.employee_lookup_url ? '<button class="btn o" onclick="adminTestLookupApi(\'employee\')">Test employee lookup</button>' : '') +
     '</div><div id="hc_lookup_test_result" class="muted" style="margin-top:8px"></div>' +
+    '</div>' +
+
+    _viewSyncCard(cfg);
+}
+
+function _viewSyncCard(cfg) {
+  var jobLabels = { vehicles: 'Vehicle roster', employees: 'Employee roster', hierarchy: 'Hierarchy roster' };
+  var status = ADMIN_SYNC_STATUS || {};
+  var rows = Object.keys(jobLabels).map(function (job) {
+    var s = status[job] || {};
+    var pill = !s.status ? '<span class="pill p-mut">Never run</span>' :
+      s.status === 'SUCCESS' ? '<span class="pill p-ok">OK</span>' : '<span class="pill p-warn">Error</span>';
+    var age = s.age_minutes != null ? (s.age_minutes + ' min ago') : '—';
+    return '<tr><td>' + jobLabels[job] + '</td><td>' + pill + '</td>' +
+      '<td>' + (s.rows_upserted != null ? s.rows_upserted : '—') + '</td>' +
+      '<td>' + age + '</td>' +
+      '<td style="max-width:280px;white-space:normal">' + esc(s.error_message || '') + '</td></tr>';
+  }).join('');
+  return '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">Master-Data Sync</h4>' +
+    '<div class="muted" style="margin-bottom:10px">Polls three more read-only endpoints on the same external system every few minutes into a local cache (vehicle roster, employee roster, and the employee-to-role hierarchy used by Routing Rules\' API-role mapping), so Register Call\'s lookups and L1-L4 role resolution don\'t depend on a live call per ticket. Off by default - existing single-item lookups above keep working unchanged either way.</div>' +
+    '<div class="grid3">' +
+    '<div class="fld"><label>Vehicle roster URL</label><input id="hc_vroster_url" value="' + esc(cfg.vehicle_roster_url || '') + '" placeholder="https://hr.example.org/api/vehicles/all"></div>' +
+    '<div class="fld"><label>Employee roster URL</label><input id="hc_eroster_url" value="' + esc(cfg.employee_roster_url || '') + '" placeholder="https://hr.example.org/api/employees/all"></div>' +
+    '<div class="fld"><label>Hierarchy roster URL</label><input id="hc_hroster_url" value="' + esc(cfg.hierarchy_roster_url || '') + '" placeholder="https://hr.example.org/api/hierarchy/all"></div>' +
+    '</div>' +
+    '<div class="fld" style="max-width:260px;margin-top:4px"><label><input type="checkbox" id="hc_sync_enabled"' + (cfg.sync_enabled ? ' checked' : '') + '> Sync automatically every few minutes</label></div>' +
+    '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">' +
+    '<button class="btn" onclick="adminSaveSyncConfig()">Save</button>' +
+    '<button class="btn o" onclick="adminRunSyncNow()">Sync now</button>' +
+    '</div>' +
+    '<div style="overflow-x:auto;margin-top:12px"><table><thead><tr><th>Job</th><th>Last result</th><th>Rows</th><th>When</th><th>Error</th></tr></thead><tbody>' + rows + '</tbody></table></div>' +
     '</div>';
+}
+function adminSaveSyncConfig() {
+  var patch = {
+    vehicle_roster_url: gv('hc_vroster_url') || '', employee_roster_url: gv('hc_eroster_url') || '',
+    hierarchy_roster_url: gv('hc_hroster_url') || '', sync_enabled: document.getElementById('hc_sync_enabled').checked,
+  };
+  api('PUT', '/admin/hierarchy/config', patch).then(function () { toast('Saved'); loadAdminHierarchyConfig(); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+}
+function adminRunSyncNow() {
+  toast('Syncing…');
+  api('POST', '/admin/sync/run', {}).then(function () { toast('Sync complete'); loadAdminHierarchyConfig(); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Sync failed'); });
 }
 function adminSaveLookupConfig() {
   var patch = { vehicle_lookup_url: gv('hc_vehicle_url') || '', employee_lookup_url: gv('hc_employee_url') || '' };

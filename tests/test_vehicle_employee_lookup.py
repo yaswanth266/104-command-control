@@ -55,13 +55,20 @@ def _reset_hierarchy_config():
 def test_vehicle_lookup_unconfigured_returns_not_configured(client):
     r = client.get("/cccapi/tickets/lookup/vehicle?registration_no=AP39TEST1", headers=CT)
     assert r.status_code == 200
-    assert r.json() == {"configured": False, "found": False, "data": None, "error": None}
+    body = r.json()
+    assert body["configured"] is False
+    assert body["found"] is False
+    assert body["data"] is None
+    assert body["error"] is None
 
 
 def test_employee_lookup_unconfigured_returns_not_configured(client):
     r = client.get("/cccapi/tickets/lookup/employees?q=ravi", headers=CT)
     assert r.status_code == 200
-    assert r.json() == {"configured": False, "results": [], "error": None}
+    body = r.json()
+    assert body["configured"] is False
+    assert body["results"] == []
+    assert body["error"] is None
 
 
 def test_non_call_registering_role_cannot_use_vehicle_lookup(client):

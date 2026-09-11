@@ -11,16 +11,19 @@ from app.api.routers import auth, tickets, dashboard, intake, users, meta, notif
 from app.core.config import WEB_DIR, UPLOAD_DIR
 from app.core.middleware import RequestIdMiddleware
 from app.services.sla_sweep import sla_sweep_loop
+from app.services.master_sync import master_sync_loop
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(sla_sweep_loop())
+    tasks = [asyncio.create_task(sla_sweep_loop()), asyncio.create_task(master_sync_loop())]
     try:
         yield
     finally:
-        task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await task
+        for task in tasks:
+            task.cancel()
+        for task in tasks:
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
 app = FastAPI(title="104 Central Command Center", lifespan=lifespan)
 app.add_middleware(RequestIdMiddleware)

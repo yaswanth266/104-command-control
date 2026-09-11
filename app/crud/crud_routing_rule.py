@@ -80,13 +80,30 @@ def _require_active_zone(db: Session, zone_id):
         raise HTTPException(400, f"Zone {zone_id} is not active")
     return zone_id
 
+# Every L1-L4 field, for create_rule/update_rule below - keeps those two
+# functions from repeating the same 12-field boilerplate three times over.
+# Precedence at resolution time (username > role > team_code > default
+# ladder) lives in app/services/hierarchy.py's _resolve_level(), not here.
+_LEVEL_FIELDS = [f"l{n}_{kind}" for n in ("1", "2", "3", "4") for kind in ("team_code", "username", "role")]
+
+def _normalize_level_kwargs(kwargs: dict) -> dict:
+    out = {}
+    for field, value in kwargs.items():
+        if value is None:
+            continue
+        out[field] = value.strip().lower() if field.endswith("_username") else (value or "").strip().upper() or None
+    return out
+
 def create_rule(db: Session, code: str, category_code: str, subcategory_code: str = None,
-                 district_id: int = None, zone_id: int = None,
-                 l1_team_code: str = None, l1_username: str = None, l2_username: str = None,
-                 l3_username: str = None, l4_username: str = None) -> RoutingRule:
+                 district_id: int = None, zone_id: int = None, **level_kwargs) -> RoutingRule:
+    """level_kwargs: any of _LEVEL_FIELDS (l1_team_code, l1_username,
+    l1_role, l2_team_code, ... l4_role)."""
     code = (code or "").strip().upper()
     if not code:
         raise HTTPException(400, "Routing rule code is required")
+    unknown = set(level_kwargs) - set(_LEVEL_FIELDS)
+    if unknown:
+        raise HTTPException(400, f"Unknown routing rule field(s): {sorted(unknown)}")
     category_code = _require_active_category(db, category_code)
     subcategory_code = _require_subcategory_of(db, subcategory_code, category_code)
     district_id = _require_active_district(db, district_id)
@@ -101,34 +118,24 @@ def create_rule(db: Session, code: str, category_code: str, subcategory_code: st
         raise HTTPException(409, f"An active rule already covers this category/sub-category/district/zone "
                                   f"combination ('{existing.code}')")
     r = RoutingRule(code=code, category_code=category_code, subcategory_code=subcategory_code,
-                     district_id=district_id, zone_id=zone_id,
-                     l1_team_code=(l1_team_code or "").strip().upper() or None,
-                     l1_username=(l1_username or "").strip().lower() or None,
-                     l2_username=(l2_username or "").strip().lower() or None,
-                     l3_username=(l3_username or "").strip().lower() or None,
-                     l4_username=(l4_username or "").strip().lower() or None,
-                     is_active=True)
+                     district_id=district_id, zone_id=zone_id, is_active=True,
+                     **_normalize_level_kwargs(level_kwargs))
     db.add(r)
     db.commit()
     db.refresh(r)
     return r
 
-def update_rule(db: Session, code: str, l1_team_code: str = None, l1_username: str = None,
-                 l2_username: str = None, l3_username: str = None, l4_username: str = None,
-                 is_active: bool = None) -> RoutingRule:
+def update_rule(db: Session, code: str, is_active: bool = None, **level_kwargs) -> RoutingRule:
+    """level_kwargs: any of _LEVEL_FIELDS - identity/scope (category,
+    sub-category, district, zone) are immutable after create."""
     r = get_rule(db, code)
     if not r:
         raise HTTPException(404, "Routing rule not found")
-    if l1_team_code is not None:
-        r.l1_team_code = l1_team_code.strip().upper() or None
-    if l1_username is not None:
-        r.l1_username = l1_username.strip().lower() or None
-    if l2_username is not None:
-        r.l2_username = l2_username.strip().lower() or None
-    if l3_username is not None:
-        r.l3_username = l3_username.strip().lower() or None
-    if l4_username is not None:
-        r.l4_username = l4_username.strip().lower() or None
+    unknown = set(level_kwargs) - set(_LEVEL_FIELDS)
+    if unknown:
+        raise HTTPException(400, f"Unknown routing rule field(s): {sorted(unknown)}")
+    for field, value in _normalize_level_kwargs(level_kwargs).items():
+        setattr(r, field, value)
     if is_active is not None:
         r.is_active = is_active
     db.commit()

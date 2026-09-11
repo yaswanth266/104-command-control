@@ -11,10 +11,12 @@ from app.schemas.admin import (TeamIn, TeamUpdate, CategoryIn, CategoryUpdate, S
                                 CalendarHolidayIn, RoutingRuleIn, RoutingRuleUpdate, HierarchyConfigUpdate)
 from app.crud import (crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason,
                       crud_machine, crud_ticket_type, crud_priority, crud_priority_matrix,
-                      crud_sla_policy, crud_calendar, crud_routing_rule, crud_assignment_exception)
+                      crud_sla_policy, crud_calendar, crud_routing_rule, crud_assignment_exception,
+                      crud_master_data)
 from app.crud.crud_admin_event import log_admin_event, get_admin_events
 from app.services import webhooks as webhook_service
 from app.services import hierarchy as hierarchy_service
+from app.services import master_sync as master_sync_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -430,11 +432,14 @@ def test_webhook(db: Session = Depends(get_db), current_user: dict = Depends(req
 
 # ---------- routing rules (L1-L4 hierarchy, local mapping) ----------
 
+_ROUTING_RULE_LEVEL_FIELDS = crud_routing_rule._LEVEL_FIELDS
+
 def _routing_rule_out(r):
-    return {"code": r.code, "category_code": r.category_code, "subcategory_code": r.subcategory_code,
-            "district_id": r.district_id, "zone_id": r.zone_id,
-            "l1_team_code": r.l1_team_code, "l1_username": r.l1_username, "l2_username": r.l2_username,
-            "l3_username": r.l3_username, "l4_username": r.l4_username, "is_active": r.is_active}
+    out = {"code": r.code, "category_code": r.category_code, "subcategory_code": r.subcategory_code,
+           "district_id": r.district_id, "zone_id": r.zone_id, "is_active": r.is_active}
+    for field in _ROUTING_RULE_LEVEL_FIELDS:
+        out[field] = getattr(r, field)
+    return out
 
 @router.get("/routing-rules")
 def list_routing_rules(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
@@ -442,8 +447,9 @@ def list_routing_rules(db: Session = Depends(get_db), current_user: dict = Depen
 
 @router.post("/routing-rules")
 def create_routing_rule(b: RoutingRuleIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    level_kwargs = {f: getattr(b, f) for f in _ROUTING_RULE_LEVEL_FIELDS}
     r = crud_routing_rule.create_rule(db, b.code, b.category_code, b.subcategory_code, b.district_id, b.zone_id,
-                                       b.l1_team_code, b.l1_username, b.l2_username, b.l3_username, b.l4_username)
+                                       **level_kwargs)
     log_admin_event(db, current_user, "ROUTING_RULE_CREATED", "routing_rule", r.code,
                      f"category={r.category_code}, subcategory={r.subcategory_code}, "
                      f"district_id={r.district_id}, zone_id={r.zone_id}")
@@ -451,9 +457,8 @@ def create_routing_rule(b: RoutingRuleIn, db: Session = Depends(get_db), current
 
 @router.put("/routing-rules/{code}")
 def update_routing_rule(code: str, b: RoutingRuleUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
-    r = crud_routing_rule.update_rule(db, code.upper(), l1_team_code=b.l1_team_code, l1_username=b.l1_username,
-                                       l2_username=b.l2_username, l3_username=b.l3_username,
-                                       l4_username=b.l4_username, is_active=b.is_active)
+    level_kwargs = {f: getattr(b, f) for f in _ROUTING_RULE_LEVEL_FIELDS}
+    r = crud_routing_rule.update_rule(db, code.upper(), is_active=b.is_active, **level_kwargs)
     log_admin_event(db, current_user, "ROUTING_RULE_UPDATED", "routing_rule", r.code, f"is_active={r.is_active}")
     return _routing_rule_out(r)
 
@@ -469,7 +474,8 @@ def update_hierarchy_config(b: HierarchyConfigUpdate, db: Session = Depends(get_
     patch = b.model_dump(exclude_unset=True)
     if not patch:
         raise HTTPException(400, "Nothing to update - provide mode, url, auth_header, auth_token, timeout_seconds, "
-                                  "vehicle_lookup_url and/or employee_lookup_url")
+                                  "vehicle_lookup_url, employee_lookup_url, vehicle_roster_url, "
+                                  "employee_roster_url, hierarchy_roster_url and/or sync_enabled")
     cfg = hierarchy_service.update_hierarchy_config(db, patch)
     log_admin_event(db, current_user, "HIERARCHY_CONFIG_UPDATED", "settings", "hierarchy",
                      f"mode={cfg.get('mode')}, url={cfg.get('url')}")
@@ -495,6 +501,25 @@ def test_employee_lookup_api(db: Session = Depends(get_db), current_user: dict =
     log_admin_event(db, current_user, "EMPLOYEE_LOOKUP_TEST_PING", "settings", "hierarchy",
                      f"ok={result.get('ok')}, status_code={result.get('status_code')}")
     return result
+
+# ---------- master-data sync (vehicle/employee/hierarchy roster cache) ----------
+
+@router.get("/sync/status")
+def get_sync_status(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return crud_master_data.get_sync_status(db)
+
+@router.post("/sync/run")
+def run_sync_now(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    """Manual trigger for the CC Manager's Sync Status card - runs all three
+    jobs synchronously (a few seconds at most; each job has its own
+    timeout_seconds) regardless of sync_enabled, so an admin can test roster
+    URLs before flipping sync on for the background loop."""
+    cfg = hierarchy_service.get_hierarchy_config(db)
+    upserted = {"vehicles": master_sync_service.sync_vehicles(db, cfg),
+                "employees": master_sync_service.sync_employees(db, cfg),
+                "hierarchy": master_sync_service.sync_hierarchy(db, cfg)}
+    log_admin_event(db, current_user, "MASTER_SYNC_RUN", "settings", "hierarchy", f"rows_upserted={upserted}")
+    return crud_master_data.get_sync_status(db)
 
 # ---------- assignment exceptions (hierarchy resolution recovery queue) ----------
 

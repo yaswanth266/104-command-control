@@ -191,16 +191,30 @@ class RoutingRuleIn(BaseModel):
     zone_id: Optional[int] = None
     l1_team_code: Optional[str] = None
     l1_username: Optional[str] = None
+    l1_role: Optional[str] = None
+    l2_team_code: Optional[str] = None
     l2_username: Optional[str] = None
+    l2_role: Optional[str] = None
+    l3_team_code: Optional[str] = None
     l3_username: Optional[str] = None
+    l3_role: Optional[str] = None
+    l4_team_code: Optional[str] = None
     l4_username: Optional[str] = None
+    l4_role: Optional[str] = None
 
 class RoutingRuleUpdate(BaseModel):
     l1_team_code: Optional[str] = None
     l1_username: Optional[str] = None
+    l1_role: Optional[str] = None
+    l2_team_code: Optional[str] = None
     l2_username: Optional[str] = None
+    l2_role: Optional[str] = None
+    l3_team_code: Optional[str] = None
     l3_username: Optional[str] = None
+    l3_role: Optional[str] = None
+    l4_team_code: Optional[str] = None
     l4_username: Optional[str] = None
+    l4_role: Optional[str] = None
     is_active: Optional[bool] = None
 
 class HierarchyConfigUpdate(BaseModel):
@@ -211,3 +225,7 @@ class HierarchyConfigUpdate(BaseModel):
     timeout_seconds: Optional[float] = None
     vehicle_lookup_url: Optional[str] = None
     employee_lookup_url: Optional[str] = None
+    vehicle_roster_url: Optional[str] = None
+    employee_roster_url: Optional[str] = None
+    hierarchy_roster_url: Optional[str] = None
+    sync_enabled: Optional[bool] = None

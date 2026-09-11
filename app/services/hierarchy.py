@@ -35,6 +35,8 @@ from app.crud.crud_settings import get_dispatch_config
 from app.crud.crud_assignment import add_occupant, release_level
 from app.crud.crud_assignment_log import log_attempt
 from app.crud.crud_assignment_exception import create_exception
+from app.crud import crud_master_data
+from app.services.roles import resolve_role_holder
 
 logger = logging.getLogger("ccc.hierarchy")
 
@@ -50,6 +52,16 @@ _DEFAULT_CONFIG = {
     # of 'mode' - usable even while hierarchy resolution itself is LOCAL.
     "vehicle_lookup_url": None,
     "employee_lookup_url": None,
+    # Phase 5 stage 2: three more GET endpoints, same system/auth, each
+    # returning a FULL roster rather than a single-item lookup - polled
+    # every CCC_MASTER_SYNC_SECONDS into the ccc_ext_vehicle/ccc_ext_employee/
+    # ccc_emp_hierarchy cache tables by app/services/master_sync.py when
+    # sync_enabled is on. lookup_vehicle()/search_employees() below check
+    # that cache first and only call the single-item URLs above on a miss.
+    "vehicle_roster_url": None,
+    "employee_roster_url": None,
+    "hierarchy_roster_url": None,
+    "sync_enabled": False,
 }
 _VALID_MODES = ("LOCAL", "EXTERNAL_API")
 
@@ -101,8 +113,20 @@ def update_hierarchy_config(db: Session, patch: dict) -> dict:
         if url and not (url.startswith("http://") or url.startswith("https://")):
             raise HTTPException(400, "Employee lookup URL must start with http:// or https://")
         cfg["employee_lookup_url"] = url
+    for key, label in (("vehicle_roster_url", "Vehicle roster"), ("employee_roster_url", "Employee roster"),
+                        ("hierarchy_roster_url", "Hierarchy roster")):
+        if key in patch:
+            url = (patch[key] or "").strip() or None
+            if url and not (url.startswith("http://") or url.startswith("https://")):
+                raise HTTPException(400, f"{label} URL must start with http:// or https://")
+            cfg[key] = url
+    if "sync_enabled" in patch:
+        cfg["sync_enabled"] = bool(patch["sync_enabled"])
     if cfg["mode"] == "EXTERNAL_API" and not cfg.get("url"):
         raise HTTPException(400, "Cannot switch to EXTERNAL_API mode without a URL")
+    if cfg["sync_enabled"] and not any(cfg.get(k) for k in
+                                        ("vehicle_roster_url", "employee_roster_url", "hierarchy_roster_url")):
+        raise HTTPException(400, "Cannot enable master-data sync without at least one roster URL configured")
 
     row = db.query(Config).filter(Config.k == _CONFIG_KEY).first()
     if row:
@@ -115,6 +139,37 @@ def update_hierarchy_config(db: Session, patch: dict) -> dict:
 
 # ---------- LocalMappingProvider ----------
 
+def _level_team(rule, n: str, default_team_code: str, team_map: dict):
+    """This level's team_code/team_name: a Routing Rule's lN_team_code
+    (Phase 5 stage 2 - e.g. "L3 -> Helpdesk") overrides the default, else
+    the default (L1's own routed team for L1-L3, CC_MANAGER for L4)."""
+    override = getattr(rule, f"l{n}_team_code", None) if rule else None
+    team_code = override or default_team_code
+    return team_code, team_map.get(team_code, team_code)
+
+
+def _level_occupant(db: Session, ticket, rule, n: str):
+    """This level's occupant, in precedence order: an explicit local
+    username > an external-API organizational role (OE/DM/RM/SPH/...,
+    resolved against the ticket's caller via app/services/roles.py) > None,
+    meaning "no override - use the level's own default-ladder computation".
+    Returns (user, unmapped) - `unmapped` is a
+    {"emp_code","name","designation"} dict when a role resolved to a real
+    person with no local ccc_user account (Phase 5 stage 2's "unmapped role
+    occupant" case), else None."""
+    if not rule:
+        return None, None
+    username = getattr(rule, f"l{n}_username", None)
+    if username:
+        return get_user_by_username(db, username), None
+    role = getattr(rule, f"l{n}_role", None)
+    if role:
+        holder = resolve_role_holder(db, ticket.caller_emp_id, role)
+        if holder:
+            return holder.get("user"), (None if holder.get("user") else holder)
+    return None, None
+
+
 def _resolve_local(db: Session, ticket, rule=None) -> list:
     if rule is None:
         rule = match_rule(db, ticket.category, zone_id=ticket.zone_id, district_id=ticket.district_id,
@@ -123,11 +178,13 @@ def _resolve_local(db: Session, ticket, rule=None) -> list:
 
     l1_team_code = (rule.l1_team_code if rule and rule.l1_team_code else ticket.team)
     l1_team_name = team_map.get(l1_team_code, l1_team_code)
-    l1_user = get_user_by_username(db, rule.l1_username) if rule and rule.l1_username else None
-    chain = [{"level": "L1", "user": l1_user, "team_code": l1_team_code, "team_name": l1_team_name}]
+    l1_user, l1_unmapped = _level_occupant(db, ticket, rule, "1")
+    chain = [{"level": "L1", "user": l1_user, "team_code": l1_team_code, "team_name": l1_team_name,
+              "unmapped": l1_unmapped}]
 
-    l2_user = get_user_by_username(db, rule.l2_username) if rule and rule.l2_username else None
-    if not l2_user:
+    l2_team_code, l2_team_name = _level_team(rule, "2", l1_team_code, team_map)
+    l2_user, l2_unmapped = _level_occupant(db, ticket, rule, "2")
+    if not l2_user and not l2_unmapped:
         # Same "who gets paged at 80% TAT" pool sla_sweep.py already uses -
         # a Local Team Lead if that (dormant) toggle is on and the ticket has
         # a district, otherwise the team's statewide manager(s).
@@ -137,33 +194,55 @@ def _resolve_local(db: Session, ticket, rule=None) -> list:
         if not managers:
             managers = get_team_managers(db, l1_team_code)
         l2_user = managers[0] if managers else None
-    chain.append({"level": "L2", "user": l2_user, "team_code": l1_team_code, "team_name": l1_team_name})
+    chain.append({"level": "L2", "user": l2_user, "team_code": l2_team_code, "team_name": l2_team_name,
+                  "unmapped": l2_unmapped})
 
-    l3_user = get_user_by_username(db, rule.l3_username) if rule and rule.l3_username else None
-    if not l3_user and l2_user and l2_user.reporting_manager_id:
+    l3_team_code, l3_team_name = _level_team(rule, "3", l1_team_code, team_map)
+    l3_user, l3_unmapped = _level_occupant(db, ticket, rule, "3")
+    if not l3_user and not l3_unmapped and l2_user and l2_user.reporting_manager_id:
         l3_user = get_user(db, l2_user.reporting_manager_id)
-    chain.append({"level": "L3", "user": l3_user, "team_code": l1_team_code, "team_name": l1_team_name})
+    chain.append({"level": "L3", "user": l3_user, "team_code": l3_team_code, "team_name": l3_team_name,
+                  "unmapped": l3_unmapped})
 
-    l4_user = get_user_by_username(db, rule.l4_username) if rule and rule.l4_username else None
-    chain.append({"level": "L4", "user": l4_user, "team_code": "CC_MANAGER", "team_name": team_map.get("CC_MANAGER", "CC_MANAGER")})
+    l4_team_code, l4_team_name = _level_team(rule, "4", "CC_MANAGER", team_map)
+    l4_user, l4_unmapped = _level_occupant(db, ticket, rule, "4")
+    chain.append({"level": "L4", "user": l4_user, "team_code": l4_team_code, "team_name": l4_team_name,
+                  "unmapped": l4_unmapped})
 
     return chain
 
 
 # ---------- ExternalApiProvider ----------
 
-def _normalize_external_response(db: Session, data) -> list:
+def _normalize_external_response(db: Session, data, rule=None) -> list:
     """Tolerant of either shape from the spec's S47 conceptual contract:
     {"hierarchy": [{"level","userId"/"userName","teamId","teamName"}, ...]}
     or, when the external system can only return a flat pool of people with
     no level assigned: {"users": [{"userId"/"userName"}, ...]} - assigned to
-    L1..L4 in list order."""
+    L1..L4 in list order.
+
+    Phase 5 stage 2: an entry's "level" need not already be "L1".."L4" - the
+    external hierarchy API may instead return organizational roles
+    (OE/DM/RM/SPH/...), which previously made this function silently drop
+    the entry. When `rule` maps a role to a level (its lN_role columns -
+    see app/models/routing_rule.py), that role's entry is placed at that
+    level instead of being discarded; an entry whose role isn't mapped by
+    any level, and isn't itself L1-L4, is still dropped."""
     entries = data.get("hierarchy") if isinstance(data, dict) else None
     chain = []
     if entries:
+        role_to_level = {}
+        if rule:
+            for n in ("1", "2", "3", "4"):
+                role = getattr(rule, f"l{n}_role", None)
+                if role:
+                    role_to_level[role.strip().upper()] = f"L{n}"
+
         for e in entries:
-            level = str(e.get("level") or "").strip().upper()
-            if level not in ("L1", "L2", "L3", "L4"):
+            raw_level = str(e.get("level") or "").strip().upper()
+            was_role_mapped = raw_level not in ("L1", "L2", "L3", "L4")
+            level = raw_level if not was_role_mapped else role_to_level.get(raw_level)
+            if not level:
                 continue
             user = None
             uid = e.get("userId") or e.get("user_id")
@@ -175,19 +254,28 @@ def _normalize_external_response(db: Session, data) -> list:
                     user = None
             if not user and uname:
                 user = get_user_by_username(db, uname)
+            # Only a role-label entry (not an already-"L1".."L4" one - that
+            # path's behavior predates Phase 5 and is intentionally
+            # unchanged) that named someone real but unresolvable locally is
+            # flagged - same "unmapped role occupant" case as LOCAL mode.
+            unmapped = None
+            if was_role_mapped and not user and (e.get("name") or uname):
+                unmapped = {"emp_code": e.get("empCode") or e.get("emp_code"),
+                            "name": e.get("name") or uname, "designation": e.get("designation")}
             chain.append({"level": level, "user": user,
                           "team_code": e.get("teamId") or e.get("team_id"),
-                          "team_name": e.get("teamName") or e.get("team_name")})
+                          "team_name": e.get("teamName") or e.get("team_name"),
+                          "unmapped": unmapped})
     else:
         users = (data.get("users") if isinstance(data, dict) else None) or []
         for level, e in zip(("L1", "L2", "L3", "L4"), users):
             uname = e.get("username") or e.get("userName")
             user = get_user_by_username(db, uname) if uname else None
-            chain.append({"level": level, "user": user, "team_code": None, "team_name": None})
+            chain.append({"level": level, "user": user, "team_code": None, "team_name": None, "unmapped": None})
     return chain
 
 
-def _resolve_external_api(db: Session, ticket, cfg: dict):
+def _resolve_external_api(db: Session, ticket, cfg: dict, rule=None):
     request_payload = {
         "ticket_id": ticket.id, "ticket_no": ticket.ticket_no,
         "ticket_type": ticket.ticket_type, "category": ticket.category, "subcategory": ticket.subcategory_code,
@@ -200,7 +288,7 @@ def _resolve_external_api(db: Session, ticket, cfg: dict):
         resp = client.post(cfg["url"], json=request_payload, headers=headers)
     resp.raise_for_status()
     data = resp.json()
-    chain = _normalize_external_response(db, data)
+    chain = _normalize_external_response(db, data, rule=rule)
     return chain, request_payload, data
 
 
@@ -215,7 +303,10 @@ def resolve_hierarchy(db: Session, ticket, rule=None):
     if cfg["mode"] == "EXTERNAL_API" and cfg.get("url"):
         request_payload = None
         try:
-            chain, request_payload, response_payload = _resolve_external_api(db, ticket, cfg)
+            api_rule = rule if rule is not None else match_rule(
+                db, ticket.category, zone_id=ticket.zone_id, district_id=ticket.district_id,
+                subcategory_code=ticket.subcategory_code)
+            chain, request_payload, response_payload = _resolve_external_api(db, ticket, cfg, rule=api_rule)
             if not chain:
                 raise ValueError("External hierarchy API returned no recognizable L1-L4 entries")
             log_attempt(db, ticket.id, "EXTERNAL_API", request_payload, response_payload, "SUCCESS")
@@ -233,9 +324,18 @@ def resolve_hierarchy(db: Session, ticket, rule=None):
 def apply_hierarchy_to_ticket(db: Session, ticket, chain: list, source: str):
     now = datetime.datetime.now()
     for entry in chain:
+        unmapped = entry.get("unmapped")
         add_occupant(db, ticket.id, entry["level"], user=entry.get("user"),
                      team_code=entry.get("team_code"), team_name=entry.get("team_name"),
-                     source=source, now=now)
+                     source=source, now=now, user_name=(unmapped or {}).get("name"))
+        if unmapped:
+            # A Routing Rule's lN_role resolved to a real person via the
+            # synced hierarchy cache, but they have no ccc_user account -
+            # recorded by name only above; flagged here so an admin can
+            # create the account or fix the mapping (Phase 5 stage 2).
+            create_exception(db, ticket.id, "UNMAPPED_ROLE_OCCUPANT",
+                              f"{entry['level']}: {unmapped.get('name')} ({unmapped.get('emp_code')}, "
+                              f"{unmapped.get('designation') or 'no designation on file'}) has no CCC user account")
     ticket.current_level = "L1"
     l1 = next((e for e in chain if e["level"] == "L1"), None)
     ticket.current_assignee_username = l1["user"].username if (l1 and l1.get("user")) else None
@@ -303,15 +403,25 @@ def _normalize_vehicle_response(raw) -> dict:
 
 
 def lookup_vehicle(db: Session, registration_no: str) -> dict:
-    """GET-based lookup against cfg['vehicle_lookup_url'], keyed on the MMU
-    registration number. Backs a live form field, not ticket creation, so it
-    never raises - an unconfigured or unreachable API just means the caller
-    falls back to typing segment/secretariat/village in manually.
-    Returns {"configured", "found", "data", "error"}."""
+    """Cache-first (Phase 5 stage 2): checks the ccc_ext_vehicle roster
+    app/services/master_sync.py keeps synced, and only falls through to a
+    live GET against cfg['vehicle_lookup_url'] on a cache miss (or when
+    nothing has ever been synced). Backs a live form field, not ticket
+    creation, so it never raises - an unconfigured or unreachable API just
+    means the caller falls back to typing segment/secretariat/village in
+    manually. Returns {"configured", "found", "data", "error", "source"}
+    where source is "CACHE" or "LIVE"."""
+    cached = crud_master_data.get_ext_vehicle(db, registration_no)
+    if cached:
+        data = {"segment_number": cached.segment_number, "district": cached.district_name,
+                "mandal": cached.mandal_name, "secretariat": cached.secretariat, "village": cached.village}
+        return {"configured": True, "found": True, "data": data, "error": None, "source": "CACHE",
+                "synced_at": cached.synced_at.isoformat() if cached.synced_at else None}
+
     cfg = get_hierarchy_config(db)
     url = cfg.get("vehicle_lookup_url")
     if not url:
-        return {"configured": False, "found": False, "data": None, "error": None}
+        return {"configured": False, "found": False, "data": None, "error": None, "source": "LIVE"}
     try:
         with httpx.Client(timeout=cfg.get("timeout_seconds", 5.0)) as client:
             resp = client.get(url, params={"registration_no": registration_no}, headers=_lookup_headers(cfg))
@@ -319,8 +429,8 @@ def lookup_vehicle(db: Session, registration_no: str) -> dict:
         data = _normalize_vehicle_response(resp.json())
     except Exception as exc:
         logger.warning("Vehicle lookup failed for %s: %s", registration_no, exc)
-        return {"configured": True, "found": False, "data": None, "error": str(exc)}
-    return {"configured": True, "found": data is not None, "data": data, "error": None}
+        return {"configured": True, "found": False, "data": None, "error": str(exc), "source": "LIVE"}
+    return {"configured": True, "found": data is not None, "data": data, "error": None, "source": "LIVE"}
 
 
 def _normalize_employee_response(raw) -> list:
@@ -340,13 +450,22 @@ def _normalize_employee_response(raw) -> list:
 
 
 def search_employees(db: Session, query: str) -> dict:
-    """GET-based search against cfg['employee_lookup_url'] for the Register
-    Call caller-info typeahead. Never raises - see lookup_vehicle().
-    Returns {"configured", "results", "error"}."""
+    """Cache-first (Phase 5 stage 2): searches the ccc_ext_employee roster
+    app/services/master_sync.py keeps synced, and only falls through to a
+    live GET against cfg['employee_lookup_url'] when the cache has nothing
+    for this query (including "cache never populated" - so this degrades
+    exactly like before on a fresh install with sync never configured).
+    Never raises - see lookup_vehicle(). Returns {"configured", "results",
+    "error", "source"} where source is "CACHE" or "LIVE"."""
+    cached = crud_master_data.search_ext_employees(db, query)
+    if cached:
+        results = [{"emp_id": e.emp_code, "name": e.name, "designation": e.designation} for e in cached]
+        return {"configured": True, "results": results, "error": None, "source": "CACHE"}
+
     cfg = get_hierarchy_config(db)
     url = cfg.get("employee_lookup_url")
     if not url:
-        return {"configured": False, "results": [], "error": None}
+        return {"configured": False, "results": [], "error": None, "source": "LIVE"}
     try:
         with httpx.Client(timeout=cfg.get("timeout_seconds", 5.0)) as client:
             resp = client.get(url, params={"q": query}, headers=_lookup_headers(cfg))
@@ -354,8 +473,8 @@ def search_employees(db: Session, query: str) -> dict:
         results = _normalize_employee_response(resp.json())
     except Exception as exc:
         logger.warning("Employee lookup failed for query %r: %s", query, exc)
-        return {"configured": True, "results": [], "error": str(exc)}
-    return {"configured": True, "results": results, "error": None}
+        return {"configured": True, "results": [], "error": str(exc), "source": "LIVE"}
+    return {"configured": True, "results": results, "error": None, "source": "LIVE"}
 
 
 def send_lookup_test_ping(db: Session, kind: str) -> dict:

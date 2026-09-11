@@ -26,6 +26,12 @@ INTAKE_API_KEY = os.environ.get("CCC_INTAKE_KEY")
 # live-editable the way the thresholds themselves do.
 SLA_SWEEP_SECONDS = int(os.environ.get("CCC_SLA_SWEEP_SECONDS", 60))
 
+# How often the master-data sync (vehicle/employee/hierarchy roster cache -
+# see app/services/master_sync.py) polls the external API, when enabled
+# (ccc_config's 'hierarchy' key, sync_enabled - off by default). Same
+# startup-time-only rationale as SLA_SWEEP_SECONDS above.
+CCC_MASTER_SYNC_SECONDS = int(os.environ.get("CCC_MASTER_SYNC_SECONDS", 300))
+
 # Outbound webhook integration (see app/services/webhooks.py): pushes CCC's
 # own ticket lifecycle events - using CCC's own category/priority master data,
 # not whatever terminology the external system sent in on /intake - to an
