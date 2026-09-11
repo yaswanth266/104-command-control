@@ -83,14 +83,23 @@ def _configure(client, urls, enabled=True):
 
 
 def test_sync_disabled_by_default_does_nothing(client, roster_server):
+    """Asserts no NEW sync run happens while disabled, rather than that the
+    'vehicles' job has never run at all - job history is global (ccc_sync_run
+    has no per-test scoping, like Teams/Categories elsewhere in this suite),
+    so another test file may have already run a real sync before this one."""
+    before = client.get("/cccapi/admin/sync/status", headers=MGR).json()["vehicles"]
     _RosterHandler.bodies["vehicles"] = [{"registration_no": "AP1", "segment_number": "S1"}]
     # roster URLs configured but sync left disabled
     client.put("/cccapi/admin/hierarchy/config", json={
         "vehicle_roster_url": roster_server["vehicles"], "sync_enabled": False,
     }, headers=MGR)
     run_master_sync_once()
-    r = client.get("/cccapi/admin/sync/status", headers=MGR)
-    assert r.json()["vehicles"]["status"] is None
+    after = client.get("/cccapi/admin/sync/status", headers=MGR).json()["vehicles"]
+    # Compare identity fields only - age_minutes is recomputed from "now" on
+    # every call and could tick over a minute boundary between the two reads.
+    assert after["finished_at"] == before["finished_at"]
+    assert after["status"] == before["status"]
+    assert after["rows_upserted"] == before["rows_upserted"]
 
 
 def test_sync_enabled_populates_all_three_caches(client, roster_server):
