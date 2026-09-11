@@ -23,6 +23,7 @@ from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_photo
 from app.services.photos import save_ticket_photo, save_ticket_attachment
 from app.services.webhooks import dispatch_ticket_event
+from app.services.hierarchy import resolve_and_apply
 
 # Isolated from the main ticket router (tickets.py), same as intake.py is
 # isolated for its own caller type - an LT never touches the department-facing
@@ -174,6 +175,7 @@ def create_lt_ticket(
                  new_status=db_ticket.status)
     notify_new_ticket(db, db_ticket)
     dispatch_ticket_event(db, "ticket.created", db_ticket, current_user["username"])
+    resolve_and_apply(db, db_ticket)
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": route["team"], "priority": priority}
 

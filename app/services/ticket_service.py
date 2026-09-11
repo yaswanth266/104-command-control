@@ -10,6 +10,7 @@ from app.schemas.ticket import ActionIn
 from app.services.notifications import notify_escalated, notify_assigned, notify_not_resolved
 from app.services.webhooks import dispatch_ticket_event
 from app.services.sla_engine import resolve_ticket_sla
+from app.services.hierarchy import record_manual_assignment
 
 # Centralized workflow contract: the ticket statuses each lifecycle action may
 # be applied from, and the status it lands on. This is the single place that
@@ -225,6 +226,11 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
             raise HTTPException(400, f"'{target_username}' is not an active member of {ticket.team}")
         setf("ASSIGNED_TO", f"{user['name']} assigned this to {target.name}", "ticket.assigned", assignee=target.username)
         notify_assigned(db, ticket, target.username, user['name'])
+        # L1-L4 hierarchy (phase 4): a directive assignment always names the
+        # ticket's CURRENT level's occupant, not necessarily L1 - most often
+        # that is L1, but an already-escalated ticket being handed to a named
+        # engineer at its current level should update that level, not L1.
+        record_manual_assignment(db, ticket, ticket.current_level or "L1", target)
 
     elif act == "reassign":
         if role not in ("CC_MANAGER", "CALL_TAKER"):

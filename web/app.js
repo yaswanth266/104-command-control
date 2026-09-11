@@ -652,6 +652,9 @@ function renderNavTree() {
       { id: 'priorities', label: 'Priorities & Matrix', icon: '🎯' },
       { id: 'slapolicies', label: 'SLA Policies', icon: '📐' },
       { id: 'calendars', label: 'Business Calendars', icon: '📅' },
+      { id: 'routingrules', label: 'Routing Rules', icon: '🧭' },
+      { id: 'hierarchysource', label: 'Hierarchy Source', icon: '🪜' },
+      { id: 'assignmentexceptions', label: 'Assignment Exceptions', icon: '🚧' },
       { id: 'machines', label: 'Machines', icon: '🔬' },
       { id: 'sla', label: 'SLA & TAT', icon: '⏱️' },
       { id: 'users', label: 'Users', icon: '👥' },
@@ -1585,6 +1588,7 @@ function openT(id) {
   api('GET', '/ticket/' + id).then(function (d) {
     renderT(d.ticket, d.events);
     loadAttachments(id);
+    loadAssignments(id, d.ticket.current_level);
   });
 }
 function closeT() {
@@ -1632,9 +1636,12 @@ function renderT(t, evs) {
     ('<div class="fld" style="margin-top:12px"><label>Re-route to team</label><select id="a_team">' +
       Object.keys(META.teams).map(function (k) { return '<option value="' + k + '"' + (k === t.team ? ' selected' : '') + '>' + esc(META.teams[k]) + '</option>'; }).join('') +
       '</select><button class="btn o sm" style="margin-top:7px" onclick="act(' + t.id + ',\'reassign\')">Apply re-route</button></div>') : '';
-  // Assign-to-engineer UI is deliberately hidden for now - the backend action
-  // still exists, it's just not offered from the ticket modal.
-  var assignBlock = '';
+  var canAssign = (ME.role === 'CC_MANAGER' || (ME.role === t.team && ME.is_team_manager)) && t.status !== 'CLOSED';
+  var assignBlock = canAssign ? ('<div class="fld" style="margin-top:12px"><label>Assign to engineer (current: ' +
+    esc(t.current_assignee_username || t.assignee || 'unassigned') + ')</label>' +
+    '<select id="a_assignee"><option value="">Loading roster…</option></select>' +
+    '<button class="btn o sm" style="margin-top:7px" onclick="act(' + t.id + ',\'assign\')">Assign</button></div>') : '';
+  if (canAssign) setTimeout(function () { loadAssignRoster(t.team, t.current_assignee_username || t.assignee); }, 0);
   var form = (mine && t.status !== 'CLOSED') ? ('<div class="grid2" style="margin-top:6px">' +
     '<div class="fld"><label>Diagnosis</label><textarea id="a_diag" rows="2">' + esc(t.diagnosis || '') + '</textarea></div>' +
     '<div class="fld"><label>Action taken</label><textarea id="a_act" rows="2">' + esc(t.action_taken || '') + '</textarea></div>' +
@@ -1664,6 +1671,8 @@ function renderT(t, evs) {
     row('Escalation reason', t.escalation_note) + '</div></div>' +
     form + reroute + assignBlock +
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-top:14px">' + A.join('') + '</div>' +
+    '<h4 style="margin:18px 0 8px;font-size:14px">Hierarchy (L1–L4) &amp; Assignment History</h4>' +
+    '<div id="modal_assignments"><div class="muted">Loading…</div></div>' +
     '<h4 style="margin:18px 0 8px;font-size:14px">Attachments / Evidence</h4>' +
     '<div id="modal_attachments"><div class="muted">Loading attachments...</div></div>' +
     '<h4 style="margin:18px 0 8px;font-size:14px">Audit trail</h4><div class="tl">' +
@@ -1689,10 +1698,42 @@ function act(id, a) {
   var b = {
     id: id, action: a, diagnosis: g('a_diag'), action_taken: g('a_act'), root_cause: g('a_rc'), parts: g('a_parts'),
     resolution: g('a_res'), pending_reason: g('a_pend'), confirmed_by: g('a_conf'), note: note,
-    team: g('a_team'), priority: g('a_pri')
+    team: g('a_team'), priority: g('a_pri'), assignee: g('a_assignee')
   };
   api('POST', '/ticket/action', b).then(function () { toast('Done: ' + a); closeT(); load(); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Action failed'); });
+}
+
+function loadAssignRoster(team, current) {
+  var sel = document.getElementById('a_assignee');
+  if (!sel) return;
+  var qs = ME.role === 'CC_MANAGER' ? ('?team=' + encodeURIComponent(team)) : '';
+  api('GET', '/users/team-roster' + qs).then(function (rows) {
+    sel.innerHTML = '<option value="">— Choose —</option>' + rows.map(function (u) {
+      return '<option value="' + esc(u.username) + '"' + (u.username === current ? ' selected' : '') + '>' + esc(u.name) + '</option>';
+    }).join('');
+  }).catch(function () { sel.innerHTML = '<option value="">Could not load roster</option>'; });
+}
+
+function loadAssignments(id, currentLevel) {
+  var box = document.getElementById('modal_assignments');
+  if (!box) return;
+  api('GET', '/ticket/' + id + '/assignments').then(function (rows) {
+    var active = rows.filter(function (r) { return r.status === 'ACTIVE'; });
+    var history = rows.filter(function (r) { return r.status !== 'ACTIVE'; }).slice().reverse();
+    var chainHtml = ['L1', 'L2', 'L3', 'L4'].map(function (lvl) {
+      var row = active.find(function (r) { return r.level === lvl; });
+      var label = row ? (row.user_name || row.team_name || row.team_code || '—') : '—';
+      var isCurrent = lvl === currentLevel;
+      return '<span class="pill ' + (isCurrent ? 'p-crit' : 'p-mut') + '" style="margin-right:6px" title="' + esc(row ? row.source : '') + '">' + lvl + ': ' + esc(label) + '</span>';
+    }).join('');
+    var historyHtml = history.length ? ('<div class="tl">' + history.map(function (r) {
+      return '<div class="e"><b>' + esc(r.level) + '</b> — ' + esc(r.user_name || r.team_name || r.team_code || '—') +
+        ' <span class="muted">(' + esc(r.source) + ')</span>' +
+        '<div class="muted">' + esc(r.assigned_at) + (r.released_at ? (' → released ' + esc(r.released_at)) : '') + '</div></div>';
+    }).join('') + '</div>') : '<div class="muted">No prior reassignments.</div>';
+    box.innerHTML = '<div style="margin-bottom:10px">' + chainHtml + '</div>' + historyHtml;
+  }).catch(function () { box.innerHTML = '<div class="muted">Could not load assignment history.</div>'; });
 }
 
 function loadAttachments(id) {
@@ -2663,6 +2704,9 @@ function loadAdminSection(t) {
   else if (t === 'priorities') loadAdminPriorities();
   else if (t === 'slapolicies') loadAdminSlaPolicies();
   else if (t === 'calendars') loadAdminCalendars();
+  else if (t === 'routingrules') loadAdminRoutingRules();
+  else if (t === 'hierarchysource') loadAdminHierarchyConfig();
+  else if (t === 'assignmentexceptions') loadAdminAssignmentExceptions();
   else if (t === 'reasons') api('GET', '/admin/categories').then(function (c) {
     ADMIN_CATEGORIES = c;
     api('GET', '/admin/reasons').then(function (d) { ADMIN_REASONS = d; ADMIN_LOADED.reasons = true; if (ADMIN_TAB === 'reasons') render(); });
@@ -2681,6 +2725,9 @@ function viewAdmin() {
     priorities: 'Priorities & Impact/Urgency Matrix',
     slapolicies: 'SLA Policies (Response & Resolution Targets)',
     calendars: 'Business Calendars & Holidays',
+    routingrules: 'Routing Rules (L1-L4 Local Mapping)',
+    hierarchysource: 'Hierarchy Source (Local vs External API)',
+    assignmentexceptions: 'Assignment Exceptions',
     machines: 'Diagnostic Machines & Equipment',
     sla: 'SLA Priorities & TAT Benchmarks',
     users: 'System Users & Role Assignments',
@@ -2700,6 +2747,9 @@ function viewAdmin() {
   else if (ADMIN_TAB === 'priorities') body = viewAdminPriorities();
   else if (ADMIN_TAB === 'slapolicies') body = viewAdminSlaPolicies();
   else if (ADMIN_TAB === 'calendars') body = viewAdminCalendars();
+  else if (ADMIN_TAB === 'routingrules') body = viewAdminRoutingRules();
+  else if (ADMIN_TAB === 'hierarchysource') body = viewAdminHierarchySource();
+  else if (ADMIN_TAB === 'assignmentexceptions') body = viewAdminAssignmentExceptions();
   else if (ADMIN_TAB === 'reasons') body = viewAdminReasons();
   else if (ADMIN_TAB === 'machines') body = viewAdminMachines();
   else if (ADMIN_TAB === 'sla') body = viewAdminSla();

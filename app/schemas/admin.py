@@ -182,3 +182,28 @@ class UserUpdate(BaseModel):
     vehicle_id: Optional[int] = None    # 0 clears it, matches crud_user.py's sentinel
     district_id: Optional[int] = None   # 0 clears it, matches crud_user.py's sentinel
     mandal_id: Optional[int] = None     # 0 clears it, matches crud_user.py's sentinel
+
+class RoutingRuleIn(BaseModel):
+    code: str
+    category_code: str
+    zone_id: Optional[int] = None
+    l1_team_code: Optional[str] = None
+    l1_username: Optional[str] = None
+    l2_username: Optional[str] = None
+    l3_username: Optional[str] = None
+    l4_username: Optional[str] = None
+
+class RoutingRuleUpdate(BaseModel):
+    l1_team_code: Optional[str] = None
+    l1_username: Optional[str] = None
+    l2_username: Optional[str] = None
+    l3_username: Optional[str] = None
+    l4_username: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class HierarchyConfigUpdate(BaseModel):
+    mode: Optional[str] = None
+    url: Optional[str] = None
+    auth_header: Optional[str] = None
+    auth_token: Optional[str] = None
+    timeout_seconds: Optional[float] = None

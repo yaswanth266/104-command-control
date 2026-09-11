@@ -22,6 +22,8 @@ from app.services.formatting import enrich, get_chronic_breakdowns_map
 from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_attachment
 from app.services.webhooks import dispatch_ticket_event
+from app.services.hierarchy import resolve_and_apply
+from app.crud.crud_assignment import get_chain
 import datetime
 import re
 
@@ -148,6 +150,9 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     create_event(db, db_ticket.id, current_user, "CREATED", detail, new_status=db_ticket.status)
     notify_new_ticket(db, db_ticket)
     dispatch_ticket_event(db, "ticket.created", db_ticket, current_user["username"])
+    # L1-L4 hierarchy (phase 4): the ticket already exists (BR-013) - this is
+    # a separate, best-effort step that can never fail ticket creation.
+    resolve_and_apply(db, db_ticket)
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "owner": r["owner"],
             "tat_mins": sla["tat_mins"], "priority": priority, "vip": is_vip}
@@ -188,6 +193,23 @@ def get_one_ticket(tid: int, db: Session = Depends(get_db), current_user: dict =
 
     enriched = enrich(t, get_category_map(db), get_team_map(db), get_sla_config(db), get_chronic_breakdowns_map(db))
     return {"ticket": enriched, "events": evs_out}
+
+@router.get("/{tid}/assignments")
+def get_ticket_assignments(tid: int, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """The ticket's full L1-L4 chain + assignment history (phase 4) - one row
+    per (level, occupant) over time; the active row per level is the current
+    chain, everything else is history (see ccc_ticket_assignment)."""
+    t = get_ticket(db, tid)
+    if not t:
+        raise HTTPException(404, "Ticket not found")
+    if not _can_view_ticket(t, current_user):
+        raise HTTPException(403, "This ticket is not assigned to your department")
+    rows = get_chain(db, tid)
+    return [{"id": a.id, "level": a.level, "user_id": a.user_id, "user_name": a.user_name_snapshot,
+             "team_code": a.team_code, "team_name": a.team_name_snapshot,
+             "assigned_at": a.assigned_at.strftime("%Y-%m-%d %H:%M") if a.assigned_at else None,
+             "released_at": a.released_at.strftime("%Y-%m-%d %H:%M") if a.released_at else None,
+             "status": a.status, "source": a.source} for a in rows]
 
 @router.post("/action")
 def ticket_action(b: ActionIn, db: Session = Depends(get_db), current_user: dict = Depends(get_current_user)):

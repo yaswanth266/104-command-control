@@ -12,6 +12,7 @@ from app.crud.crud_event import create_event
 from app.services.notifications import notify_new_ticket
 from app.services.webhooks import dispatch_ticket_event
 from app.services.sla_engine import resolve_ticket_sla
+from app.services.hierarchy import resolve_and_apply
 import datetime
 
 router = APIRouter(prefix="/intake", tags=["intake"])
@@ -108,5 +109,6 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
     # subscribed external system consumes CCC's classification directly rather
     # than maintaining its own inbound mapping.
     dispatch_ticket_event(db, "ticket.created", db_ticket, actor_info["username"])
+    resolve_and_apply(db, db_ticket)
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "priority": pr, "category": cat, "vip": is_vip}

@@ -55,6 +55,12 @@ class Ticket(Base):
     sla_policy_code = Column(String(48))
     response_due_at = Column(DateTime)
     response_breached = Column(Boolean, server_default=text("0"))
+    # L1-L4 hierarchy (phase 4): current_level tracks where the ticket sits in
+    # its ccc_ticket_assignment chain; current_assignee_username is a fast
+    # denormalized read of that level's active occupant (the full history
+    # lives in ccc_ticket_assignment - see app/services/hierarchy.py).
+    current_level = Column(String(4), server_default=text("'L1'"))
+    current_assignee_username = Column(String(64))
     team = Column(String(24), index=True)
     owner = Column(String(128))
     assignee = Column(String(64))

@@ -19,8 +19,13 @@ from app.models.priority_matrix import PriorityMatrix
 from app.models.business_calendar import BusinessCalendar
 from app.models.calendar_holiday import CalendarHoliday
 from app.models.sla_policy import SlaPolicy
+from app.models.ticket_assignment import TicketAssignment
+from app.models.routing_rule import RoutingRule
+from app.models.api_assignment_log import ApiAssignmentLog
+from app.models.assignment_exception import AssignmentException
 from app.db.database import Base
 
 __all__ = ["User", "Ticket", "Event", "Config", "Notification", "Team", "Category", "AdminEvent",
            "District", "Mandal", "Zone", "Vehicle", "Reason", "Machine", "Attachment", "TicketType",
-           "Priority", "PriorityMatrix", "BusinessCalendar", "CalendarHoliday", "SlaPolicy", "Base"]
+           "Priority", "PriorityMatrix", "BusinessCalendar", "CalendarHoliday", "SlaPolicy",
+           "TicketAssignment", "RoutingRule", "ApiAssignmentLog", "AssignmentException", "Base"]

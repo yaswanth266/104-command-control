@@ -8,12 +8,13 @@ from app.schemas.admin import (TeamIn, TeamUpdate, CategoryIn, CategoryUpdate, S
                                 DispatchUpdate, WebhookConfigUpdate, TicketTypeIn, TicketTypeUpdate,
                                 PriorityIn, PriorityUpdate, PriorityMatrixCellIn,
                                 SlaPolicyIn, SlaPolicyUpdate, BusinessCalendarIn, BusinessCalendarUpdate,
-                                CalendarHolidayIn)
+                                CalendarHolidayIn, RoutingRuleIn, RoutingRuleUpdate, HierarchyConfigUpdate)
 from app.crud import (crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason,
                       crud_machine, crud_ticket_type, crud_priority, crud_priority_matrix,
-                      crud_sla_policy, crud_calendar)
+                      crud_sla_policy, crud_calendar, crud_routing_rule, crud_assignment_exception)
 from app.crud.crud_admin_event import log_admin_event, get_admin_events
 from app.services import webhooks as webhook_service
+from app.services import hierarchy as hierarchy_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -426,6 +427,75 @@ def test_webhook(db: Session = Depends(get_db), current_user: dict = Depends(req
     log_admin_event(db, current_user, "WEBHOOK_TEST_PING", "settings", "webhook",
                      f"ok={result.get('ok')}, status_code={result.get('status_code')}, elapsed_ms={result.get('elapsed_ms')}")
     return result
+
+# ---------- routing rules (L1-L4 hierarchy, local mapping) ----------
+
+def _routing_rule_out(r):
+    return {"code": r.code, "category_code": r.category_code, "zone_id": r.zone_id,
+            "l1_team_code": r.l1_team_code, "l1_username": r.l1_username, "l2_username": r.l2_username,
+            "l3_username": r.l3_username, "l4_username": r.l4_username, "is_active": r.is_active}
+
+@router.get("/routing-rules")
+def list_routing_rules(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_routing_rule_out(r) for r in crud_routing_rule.get_rules(db, include_inactive=True)]
+
+@router.post("/routing-rules")
+def create_routing_rule(b: RoutingRuleIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    r = crud_routing_rule.create_rule(db, b.code, b.category_code, b.zone_id, b.l1_team_code,
+                                       b.l1_username, b.l2_username, b.l3_username, b.l4_username)
+    log_admin_event(db, current_user, "ROUTING_RULE_CREATED", "routing_rule", r.code,
+                     f"category={r.category_code}, zone_id={r.zone_id}")
+    return _routing_rule_out(r)
+
+@router.put("/routing-rules/{code}")
+def update_routing_rule(code: str, b: RoutingRuleUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    r = crud_routing_rule.update_rule(db, code.upper(), l1_team_code=b.l1_team_code, l1_username=b.l1_username,
+                                       l2_username=b.l2_username, l3_username=b.l3_username,
+                                       l4_username=b.l4_username, is_active=b.is_active)
+    log_admin_event(db, current_user, "ROUTING_RULE_UPDATED", "routing_rule", r.code, f"is_active={r.is_active}")
+    return _routing_rule_out(r)
+
+# ---------- hierarchy source (L1-L4 - local mapping vs external API) ----------
+
+@router.get("/hierarchy/config")
+def get_hierarchy_config(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    cfg = hierarchy_service.get_hierarchy_config(db)
+    return {**cfg, "auth_token_set": bool(cfg.get("auth_token")), "auth_token": None}
+
+@router.put("/hierarchy/config")
+def update_hierarchy_config(b: HierarchyConfigUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    patch = b.model_dump(exclude_unset=True)
+    if not patch:
+        raise HTTPException(400, "Nothing to update - provide mode, url, auth_header, auth_token and/or timeout_seconds")
+    cfg = hierarchy_service.update_hierarchy_config(db, patch)
+    log_admin_event(db, current_user, "HIERARCHY_CONFIG_UPDATED", "settings", "hierarchy",
+                     f"mode={cfg.get('mode')}, url={cfg.get('url')}")
+    return {**cfg, "auth_token_set": bool(cfg.get("auth_token")), "auth_token": None}
+
+@router.post("/hierarchy/test")
+def test_hierarchy_api(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    result = hierarchy_service.send_test_ping(db)
+    log_admin_event(db, current_user, "HIERARCHY_TEST_PING", "settings", "hierarchy",
+                     f"ok={result.get('ok')}, status_code={result.get('status_code')}, elapsed_ms={result.get('elapsed_ms')}")
+    return result
+
+# ---------- assignment exceptions (hierarchy resolution recovery queue) ----------
+
+def _assignment_exception_out(e):
+    return {"id": e.id, "ticket_id": e.ticket_id, "reason": e.reason, "detail": e.detail, "status": e.status,
+            "created_at": e.created_at.strftime("%Y-%m-%d %H:%M") if e.created_at else None,
+            "resolved_at": e.resolved_at.strftime("%Y-%m-%d %H:%M") if e.resolved_at else None,
+            "resolved_by": e.resolved_by}
+
+@router.get("/assignment-exceptions")
+def list_assignment_exceptions(status: str = None, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_assignment_exception_out(e) for e in crud_assignment_exception.get_exceptions(db, status)]
+
+@router.post("/assignment-exceptions/{exception_id}/resolve")
+def resolve_assignment_exception(exception_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    e = crud_assignment_exception.resolve_exception(db, exception_id, current_user["username"])
+    log_admin_event(db, current_user, "ASSIGNMENT_EXCEPTION_RESOLVED", "assignment_exception", str(e.id), f"ticket_id={e.ticket_id}")
+    return _assignment_exception_out(e)
 
 # ---------- audit ----------
 
