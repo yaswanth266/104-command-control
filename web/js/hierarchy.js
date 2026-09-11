@@ -95,7 +95,33 @@ function viewAdminHierarchySource() {
     '<button class="btn" onclick="adminSaveHierarchyConfig()">Save</button>' +
     (isExternal ? '<button class="btn o" onclick="adminTestHierarchyApi()">Test connection</button>' : '') +
     '</div><div id="hc_test_result" class="muted" style="margin-top:8px"></div>' +
+    '</div>' +
+
+    '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">Vehicle &amp; Employee Lookup</h4>' +
+    '<div class="muted" style="margin-bottom:10px">Same external system and auth above, two more read-only endpoints on it. Register Call uses these to auto-fill Segment Number/Secretariat/Village from the selected MMU vehicle, and Designation/Employee ID from a searched employee. Leave a URL blank to keep those fields manual-entry only - a ticket is never blocked on either lookup.</div>' +
+    '<div class="grid2">' +
+    '<div class="fld"><label>Vehicle lookup URL</label><input id="hc_vehicle_url" value="' + esc(cfg.vehicle_lookup_url || '') + '" placeholder="https://hr.example.org/api/vehicles"></div>' +
+    '<div class="fld"><label>Employee lookup URL</label><input id="hc_employee_url" value="' + esc(cfg.employee_lookup_url || '') + '" placeholder="https://hr.example.org/api/employees"></div>' +
+    '</div>' +
+    '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">' +
+    '<button class="btn" onclick="adminSaveLookupConfig()">Save</button>' +
+    (cfg.vehicle_lookup_url ? '<button class="btn o" onclick="adminTestLookupApi(\'vehicle\')">Test vehicle lookup</button>' : '') +
+    (cfg.employee_lookup_url ? '<button class="btn o" onclick="adminTestLookupApi(\'employee\')">Test employee lookup</button>' : '') +
+    '</div><div id="hc_lookup_test_result" class="muted" style="margin-top:8px"></div>' +
     '</div>';
+}
+function adminSaveLookupConfig() {
+  var patch = { vehicle_lookup_url: gv('hc_vehicle_url') || '', employee_lookup_url: gv('hc_employee_url') || '' };
+  api('PUT', '/admin/hierarchy/config', patch).then(function () { toast('Saved'); loadAdminHierarchyConfig(); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+}
+function adminTestLookupApi(kind) {
+  document.getElementById('hc_lookup_test_result').textContent = 'Testing…';
+  api('POST', '/admin/hierarchy/test-' + kind + '-lookup', {}).then(function (r) {
+    document.getElementById('hc_lookup_test_result').textContent = r.ok ?
+      ('✅ Reachable (status ' + r.status_code + ', ' + r.elapsed_ms + 'ms)') :
+      ('❌ ' + (r.error || ('status ' + r.status_code)) + ' (' + r.elapsed_ms + 'ms)');
+  }).catch(function (e) { document.getElementById('hc_lookup_test_result').textContent = typeof e === 'string' ? e : 'Test failed'; });
 }
 function hcModeToggled() {
   var external = document.getElementById('hc_mode').value === 'EXTERNAL_API';

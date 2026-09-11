@@ -18,8 +18,19 @@ class Ticket(Base):
     mandal_id = Column(Integer, index=True)
     zone_id = Column(Integer, index=True)
     location = Column(String(191))
+    # Populated from the external vehicle-lookup API (Admin > Hierarchy
+    # Source) keyed on mmu_vehicle when configured; plain text, not tied to
+    # a Geography master, since Segment/Secretariat/Village have no internal
+    # table today. Manual entry when the lookup isn't configured or misses.
+    segment_number = Column(String(64))
+    secretariat = Column(String(191))
+    village = Column(String(191))
     caller_name = Column(String(128))
     caller_phone = Column(String(20))
+    # From the external employee-lookup API, selected via a searchable
+    # dropdown; free text fallback when the lookup isn't configured.
+    caller_emp_id = Column(String(64))
+    caller_designation = Column(String(128))
     called_at = Column(DateTime)
     equipment = Column(String(128))
     machine_id = Column(Integer, index=True)

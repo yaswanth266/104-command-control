@@ -466,7 +466,8 @@ def get_hierarchy_config(db: Session = Depends(get_db), current_user: dict = Dep
 def update_hierarchy_config(b: HierarchyConfigUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     patch = b.model_dump(exclude_unset=True)
     if not patch:
-        raise HTTPException(400, "Nothing to update - provide mode, url, auth_header, auth_token and/or timeout_seconds")
+        raise HTTPException(400, "Nothing to update - provide mode, url, auth_header, auth_token, timeout_seconds, "
+                                  "vehicle_lookup_url and/or employee_lookup_url")
     cfg = hierarchy_service.update_hierarchy_config(db, patch)
     log_admin_event(db, current_user, "HIERARCHY_CONFIG_UPDATED", "settings", "hierarchy",
                      f"mode={cfg.get('mode')}, url={cfg.get('url')}")
@@ -477,6 +478,20 @@ def test_hierarchy_api(db: Session = Depends(get_db), current_user: dict = Depen
     result = hierarchy_service.send_test_ping(db)
     log_admin_event(db, current_user, "HIERARCHY_TEST_PING", "settings", "hierarchy",
                      f"ok={result.get('ok')}, status_code={result.get('status_code')}, elapsed_ms={result.get('elapsed_ms')}")
+    return result
+
+@router.post("/hierarchy/test-vehicle-lookup")
+def test_vehicle_lookup_api(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    result = hierarchy_service.send_lookup_test_ping(db, "vehicle")
+    log_admin_event(db, current_user, "VEHICLE_LOOKUP_TEST_PING", "settings", "hierarchy",
+                     f"ok={result.get('ok')}, status_code={result.get('status_code')}")
+    return result
+
+@router.post("/hierarchy/test-employee-lookup")
+def test_employee_lookup_api(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    result = hierarchy_service.send_lookup_test_ping(db, "employee")
+    log_admin_event(db, current_user, "EMPLOYEE_LOOKUP_TEST_PING", "settings", "hierarchy",
+                     f"ok={result.get('ok')}, status_code={result.get('status_code')}")
     return result
 
 # ---------- assignment exceptions (hierarchy resolution recovery queue) ----------

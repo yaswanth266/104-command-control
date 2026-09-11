@@ -23,6 +23,11 @@ class TicketIn(BaseModel):
     machine_id: Optional[int] = None
     ticket_type: Optional[str] = None
     subcategory_code: Optional[str] = None
+    segment_number: Optional[str] = None
+    secretariat: Optional[str] = None
+    village: Optional[str] = None
+    caller_emp_id: Optional[str] = None
+    caller_designation: Optional[str] = None
 
 class LogCallIn(BaseModel):
     caller_name: Optional[str] = None

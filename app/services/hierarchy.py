@@ -45,6 +45,11 @@ _DEFAULT_CONFIG = {
     "auth_header": None,     # e.g. "Authorization" - sent with auth_token as its value
     "auth_token": None,
     "timeout_seconds": 5.0,
+    # Same external system/auth as the hierarchy API above, two more GET
+    # endpoints on it: vehicle geo lookup and employee search. Independent
+    # of 'mode' - usable even while hierarchy resolution itself is LOCAL.
+    "vehicle_lookup_url": None,
+    "employee_lookup_url": None,
 }
 _VALID_MODES = ("LOCAL", "EXTERNAL_API")
 
@@ -86,6 +91,16 @@ def update_hierarchy_config(db: Session, patch: dict) -> dict:
         if not (0 < t <= 30):
             raise HTTPException(400, "'timeout_seconds' must be between 0 and 30")
         cfg["timeout_seconds"] = t
+    if "vehicle_lookup_url" in patch:
+        url = (patch["vehicle_lookup_url"] or "").strip() or None
+        if url and not (url.startswith("http://") or url.startswith("https://")):
+            raise HTTPException(400, "Vehicle lookup URL must start with http:// or https://")
+        cfg["vehicle_lookup_url"] = url
+    if "employee_lookup_url" in patch:
+        url = (patch["employee_lookup_url"] or "").strip() or None
+        if url and not (url.startswith("http://") or url.startswith("https://")):
+            raise HTTPException(400, "Employee lookup URL must start with http:// or https://")
+        cfg["employee_lookup_url"] = url
     if cfg["mode"] == "EXTERNAL_API" and not cfg.get("url"):
         raise HTTPException(400, "Cannot switch to EXTERNAL_API mode without a URL")
 
@@ -249,6 +264,114 @@ def record_manual_assignment(db: Session, ticket, level: str, user):
     if level == (ticket.current_level or "L1"):
         ticket.current_assignee_username = user.username
     db.commit()
+
+
+def _lookup_headers(cfg: dict) -> dict:
+    headers = {}
+    if cfg.get("auth_header") and cfg.get("auth_token"):
+        headers[cfg["auth_header"]] = cfg["auth_token"]
+    return headers
+
+
+def _normalize_vehicle_response(raw) -> dict:
+    """No live upstream system yet - placeholder contract, tolerant of a
+    flat object or {"vehicle": {...}} and of snake_case/camelCase keys:
+    segment_number, district, mandal, secretariat, village."""
+    if not isinstance(raw, dict):
+        return None
+    obj = raw.get("vehicle") if isinstance(raw.get("vehicle"), dict) else raw
+
+    def g(*keys):
+        for k in keys:
+            v = obj.get(k)
+            if v not in (None, ""):
+                return v
+        return None
+
+    result = {
+        "segment_number": g("segment_number", "segmentNumber", "segment"),
+        "district": g("district", "district_name", "districtName"),
+        "mandal": g("mandal", "mandal_name", "mandalName"),
+        "secretariat": g("secretariat", "secretariat_name", "secretariatName"),
+        "village": g("village", "village_name", "villageName"),
+    }
+    return result if any(result.values()) else None
+
+
+def lookup_vehicle(db: Session, registration_no: str) -> dict:
+    """GET-based lookup against cfg['vehicle_lookup_url'], keyed on the MMU
+    registration number. Backs a live form field, not ticket creation, so it
+    never raises - an unconfigured or unreachable API just means the caller
+    falls back to typing segment/secretariat/village in manually.
+    Returns {"configured", "found", "data", "error"}."""
+    cfg = get_hierarchy_config(db)
+    url = cfg.get("vehicle_lookup_url")
+    if not url:
+        return {"configured": False, "found": False, "data": None, "error": None}
+    try:
+        with httpx.Client(timeout=cfg.get("timeout_seconds", 5.0)) as client:
+            resp = client.get(url, params={"registration_no": registration_no}, headers=_lookup_headers(cfg))
+        resp.raise_for_status()
+        data = _normalize_vehicle_response(resp.json())
+    except Exception as exc:
+        logger.warning("Vehicle lookup failed for %s: %s", registration_no, exc)
+        return {"configured": True, "found": False, "data": None, "error": str(exc)}
+    return {"configured": True, "found": data is not None, "data": data, "error": None}
+
+
+def _normalize_employee_response(raw) -> list:
+    """Placeholder contract - tolerant of a bare list or {"employees": [...]}
+    of {emp_id, name, designation} under a few likely key spellings."""
+    items = raw if isinstance(raw, list) else ((raw.get("employees") if isinstance(raw, dict) else None) or [])
+    results = []
+    for e in items:
+        if not isinstance(e, dict):
+            continue
+        emp_id = e.get("emp_id") or e.get("employeeId") or e.get("employee_id") or e.get("id")
+        name = e.get("name") or e.get("employeeName") or e.get("full_name")
+        designation = e.get("designation") or e.get("designationName") or e.get("designation_name")
+        if emp_id or name:
+            results.append({"emp_id": emp_id, "name": name, "designation": designation})
+    return results
+
+
+def search_employees(db: Session, query: str) -> dict:
+    """GET-based search against cfg['employee_lookup_url'] for the Register
+    Call caller-info typeahead. Never raises - see lookup_vehicle().
+    Returns {"configured", "results", "error"}."""
+    cfg = get_hierarchy_config(db)
+    url = cfg.get("employee_lookup_url")
+    if not url:
+        return {"configured": False, "results": [], "error": None}
+    try:
+        with httpx.Client(timeout=cfg.get("timeout_seconds", 5.0)) as client:
+            resp = client.get(url, params={"q": query}, headers=_lookup_headers(cfg))
+        resp.raise_for_status()
+        results = _normalize_employee_response(resp.json())
+    except Exception as exc:
+        logger.warning("Employee lookup failed for query %r: %s", query, exc)
+        return {"configured": True, "results": [], "error": str(exc)}
+    return {"configured": True, "results": results, "error": None}
+
+
+def send_lookup_test_ping(db: Session, kind: str) -> dict:
+    """Connectivity check for the admin 'Test' buttons on the vehicle/employee
+    lookup URLs - mirrors send_test_ping() below but GET-based, matching how
+    lookup_vehicle()/search_employees() actually call out."""
+    cfg = get_hierarchy_config(db)
+    url_key = "vehicle_lookup_url" if kind == "vehicle" else "employee_lookup_url"
+    url = cfg.get(url_key)
+    if not url:
+        raise HTTPException(400, f"Configure a {kind} lookup URL first")
+    params = {"registration_no": "TEST"} if kind == "vehicle" else {"q": "test"}
+    started = time.monotonic()
+    try:
+        with httpx.Client(timeout=cfg.get("timeout_seconds", 5.0)) as client:
+            resp = client.get(url, params=params, headers=_lookup_headers(cfg))
+        return {"ok": resp.status_code < 300, "status_code": resp.status_code,
+                "elapsed_ms": round((time.monotonic() - started) * 1000)}
+    except httpx.HTTPError as exc:
+        return {"ok": False, "error": str(exc), "elapsed_ms": round((time.monotonic() - started) * 1000)}
 
 
 def send_test_ping(db: Session) -> dict:

@@ -22,7 +22,7 @@ from app.services.formatting import enrich, get_chronic_breakdowns_map
 from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_attachment
 from app.services.webhooks import dispatch_ticket_event
-from app.services.hierarchy import resolve_and_apply
+from app.services.hierarchy import resolve_and_apply, lookup_vehicle, search_employees
 from app.crud.crud_assignment import get_chain
 import datetime
 import re
@@ -113,8 +113,13 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         zone_id=r["zone_id"],
         machine_id=b.machine_id,
         location=b.location,
+        segment_number=b.segment_number,
+        secretariat=b.secretariat,
+        village=b.village,
         caller_name=b.caller_name,
         caller_phone=b.caller_phone,
+        caller_emp_id=b.caller_emp_id,
+        caller_designation=b.caller_designation,
         called_at=now,
         equipment=b.equipment,
         problem=b.problem,
@@ -156,6 +161,25 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "owner": r["owner"],
             "tat_mins": sla["tat_mins"], "priority": priority, "vip": is_vip}
+
+@collection_router.get("/lookup/vehicle")
+def lookup_vehicle_for_ticket(registration_no: str, db: Session = Depends(get_db),
+                               current_user: dict = Depends(get_current_user)):
+    """Register Call pre-fill: segment/district/mandal/secretariat/village for
+    the selected MMU vehicle. Same permission as raising a call - never a
+    hard failure, since the caller falls back to typing these in by hand."""
+    if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
+        raise HTTPException(403, "Only the Call Taker or Global Team Executive may register a call")
+    return lookup_vehicle(db, registration_no)
+
+@collection_router.get("/lookup/employees")
+def lookup_employees_for_ticket(q: str = "", db: Session = Depends(get_db),
+                                 current_user: dict = Depends(get_current_user)):
+    """Register Call caller-info typeahead: designation/emp id come from
+    picking a result here, same as the vehicle lookup above."""
+    if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
+        raise HTTPException(403, "Only the Call Taker or Global Team Executive may register a call")
+    return search_employees(db, q)
 
 @collection_router.get("")
 def list_tickets(status: str = "", team: str = "", scope: str = "", q_: str = "",

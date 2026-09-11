@@ -207,3 +207,5 @@ class HierarchyConfigUpdate(BaseModel):
     auth_header: Optional[str] = None
     auth_token: Optional[str] = None
     timeout_seconds: Optional[float] = None
+    vehicle_lookup_url: Optional[str] = None
+    employee_lookup_url: Optional[str] = None

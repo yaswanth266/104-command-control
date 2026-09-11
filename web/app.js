@@ -728,7 +728,7 @@ function render() {
     else { b.innerHTML = viewLTReport(); setTimeout(loadLTCategories, 0); }
     return;
   }
-  if (TAB === 'new') { b.innerHTML = viewNew(); setTimeout(function () { previewRoute(); loadNewCallGeo(); }, 0); }
+  if (TAB === 'new') { b.innerHTML = viewNew(); setTimeout(function () { previewRoute(); loadNewCallGeo(); if (typeof initLookupUI === 'function') initLookupUI(); }, 0); }
   else if (TAB === 'dash') b.innerHTML = viewDash();
   else if (TAB === 'matrix') b.innerHTML = viewMatrix();
   else if (TAB === 'admin') b.innerHTML = viewAdmin();
@@ -1317,6 +1317,7 @@ function viewNew() {
           '<div class="fld"><label>Mandal</label><select id="f_mandal_id"><option value="">Select district first</option></select></div>' +
           '<div class="fld"><label>Specific Location / Village</label><input id="f_loc" placeholder="Village / Landmark / PHC"></div>' +
         '</div>' +
+        '<div id="lookup_geo_fields"></div>' +
       '</div>' +
     '</div>' +
 
@@ -1331,6 +1332,7 @@ function viewNew() {
           '<div class="fld"><label>Caller name</label><input id="f_cname" placeholder="Dr. / Staff name"></div>' +
           '<div class="fld"><label>Caller contact</label><input id="f_cph" placeholder="10-digit mobile number"></div>' +
         '</div>' +
+        '<div id="lookup_caller_fields"></div>' +
         '<div class="fld" style="display:flex;align-items:center;gap:8px;margin-top:8px;margin-bottom:0"><input type="checkbox" id="rc_is_lt" style="width:auto" onchange="ltCallerToggled()"> ' +
         '<label style="margin:0;text-transform:none;font-size:13px;font-weight:600;color:var(--ink2)">Caller is a Lab Technician reporting a field issue</label></div>' +
         '<div id="rc_lt_block" class="hide" style="margin-top:12px">' +
@@ -1497,6 +1499,7 @@ function selectVeh(reg, id) {
   document.getElementById('f_veh').value = reg;
   document.getElementById('f_vehicle_id').value = id;
   document.getElementById('veh_dropdown').classList.add('hide');
+  if (typeof onVehicleSelectedForLookup === 'function') onVehicleSelectedForLookup(reg);
 }
 var MACH_DEBOUNCE = null;
 function equipmentSearchInput() {
@@ -1558,14 +1561,14 @@ function createT() {
   var districtName = districtId ? ((NEW_DISTRICTS.find(function (d) { return String(d.id) === districtId; }) || {}).name || '') : '';
   var filesToUpload = (window._NEW_TICKET_FILES || []).slice();
 
-  api('POST', '/ticket', {
+  api('POST', '/ticket', Object.assign({
     mmu_vehicle: g('f_veh'), vehicle_id: vehicleId ? +vehicleId : null, district: districtName,
     district_id: districtId ? +districtId : null, mandal_id: mandalId ? +mandalId : null, machine_id: machineId ? +machineId : null,
     location: g('f_loc'), caller_name: g('f_cname'),
     caller_phone: g('f_cph'), equipment: g('f_eq'), problem: g('f_prob'), error_code: g('f_err'), impact: g('f_imp'),
     category: g('f_cat'), priority: g('f_pri'), impact_code: g('f_impact') || undefined, urgency_code: g('f_urgency') || undefined,
     ticket_type: g('f_tt') || undefined, subcategory_code: g('f_subcat') || undefined
-  })
+  }, (typeof lookupExtraFields === 'function' ? lookupExtraFields() : {})))
     .then(function (d) {
       window._NEW_TICKET_FILES = [];
       if (filesToUpload.length > 0) {
@@ -1686,7 +1689,9 @@ function renderT(t, evs) {
     (t.escalated ? '<span class="pill p-crit">ESCALATED' + (t.escalation_count > 1 ? ' &times;' + esc(t.escalation_count) : '') + '</span>' : '') + '<span class="pill p-mut">TAT ' + esc(t.tat_mins) + ' min</span>' +
     (t.paused_minutes ? '<span class="pill p-mut">Paused ' + esc(t.paused_minutes) + 'm so far</span>' : '') + '</div>' +
     '<div class="grid2"><div>' + row('Ticket Type', (META.ticket_types && META.ticket_types[t.ticket_type] && META.ticket_types[t.ticket_type].label) || t.ticket_type) + row('Sub-Category', t.subcategory_label_snapshot) + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) + row('Impact Level', t.impact_code) + row('Urgency Level', t.urgency_code) +
-    row('Caller', (t.caller_name || '') + (t.caller_phone ? (' · ' + t.caller_phone) : '')) + row('Location', t.location) + '</div>' +
+    row('Caller', (t.caller_name || '') + (t.caller_phone ? (' · ' + t.caller_phone) : '')) +
+    row('Caller Designation', t.caller_designation) + row('Caller Emp ID', t.caller_emp_id) +
+    row('Location', t.location) + row('Segment Number', t.segment_number) + row('Secretariat', t.secretariat) + row('Village', t.village) + '</div>' +
     '<div>' + row('Raised At', formatDT(t.created_at)) +
     row('Response Due (SLA)', t.response_due_at ? (formatDT(t.response_due_at) + (t.response_breached ? ' — BREACHED' : '')) : '') +
     row('Resolution Due (SLA)', formatDT(t.due_at)) + row('SLA Policy', t.sla_policy_code) +
