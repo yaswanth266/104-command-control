@@ -3937,7 +3937,7 @@ function viewAdminSla() {
     '<div class="muted" style="margin-bottom:12px">Approved SLA/TAT values — editable once the official SLA is signed off.</div><div class="grid3">' +
     Object.keys(tat).map(function (k) { return '<div class="fld"><label>' + k + '</label><input id="sla_tat_' + k + '" value="' + esc(tat[k]) + '"></div>'; }).join('') +
     '</div></div>' +
-    '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">SLA tiers</h4>' +
+    '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">SLA tiers</h4>' +
     '<div class="muted" style="margin-bottom:12px">A ticket goes AT RISK / CRITICAL once time-left drops to or below max(floor minutes, TAT &times; fraction).</div>' +
     '<div class="grid3">' +
     '<div class="fld"><label>At-risk floor (min)</label><input id="sla_arm" value="' + esc(sla.at_risk_minutes) + '"></div>' +
@@ -3947,6 +3947,15 @@ function viewAdminSla() {
     '<div class="fld"><label>Resolved follow-up (hours)</label><input id="sla_rfh" value="' + esc(sla.resolved_followup_hours) + '"></div>' +
     '<div class="fld"><label>Reopen window (hours)</label><input id="sla_rwh" value="' + esc(sla.reopen_window_hours) + '"></div>' +
     '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminSaveSla()">Save</button></div>' +
+    '</div></div>' +
+    '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">L1-L4 auto-escalation</h4>' +
+    '<div class="muted" style="margin-bottom:12px">Percent of a ticket\'s Resolution SLA consumed at which each level (see Routing Rules) is notified and the ticket\'s current level advances - each must be strictly greater than the one before it. 100% (SLA breach) always escalates to the Global Team Executive and isn\'t configurable here.</div>' +
+    '<div class="grid3">' +
+    '<div class="fld"><label>L1 (%)</label><input id="sla_esc_l1" value="' + esc(Math.round((sla.escalation_pcts || {}).L1 * 100 || 0)) + '"></div>' +
+    '<div class="fld"><label>L2 (%)</label><input id="sla_esc_l2" value="' + esc(Math.round((sla.escalation_pcts || {}).L2 * 100 || 0)) + '"></div>' +
+    '<div class="fld"><label>L3 (%)</label><input id="sla_esc_l3" value="' + esc(Math.round((sla.escalation_pcts || {}).L3 * 100 || 0)) + '"></div>' +
+    '<div class="fld"><label>L4 (%)</label><input id="sla_esc_l4" value="' + esc(Math.round((sla.escalation_pcts || {}).L4 * 100 || 0)) + '"></div>' +
+    '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminSaveEscalationPcts()">Save</button></div>' +
     '</div></div>' +
     '<div class="card"><h4 style="margin-bottom:4px;font-size:15px">VIP escalation keywords</h4>' +
     '<div class="muted" style="margin-bottom:12px">A new ticket auto-escalates to P1 if the problem text contains any of these (case-insensitive).</div>' +
@@ -3961,6 +3970,14 @@ function adminSaveSla() {
   var tat = {}; Object.keys(ADMIN_SLA.tat || {}).forEach(function (k) { tat[k] = gv('sla_tat_' + k); });
   var sla = { at_risk_minutes: gv('sla_arm'), at_risk_fraction: gv('sla_arf'), critical_minutes: gv('sla_cm'), critical_fraction: gv('sla_cf'), resolved_followup_hours: gv('sla_rfh'), reopen_window_hours: gv('sla_rwh') };
   api('PUT', '/admin/sla', { tat: tat, sla: sla }).then(function () { toast('Saved'); loadAdminSection('sla'); })
+    .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
+}
+function adminSaveEscalationPcts() {
+  var pcts = {
+    L1: (+gv('sla_esc_l1') || 0) / 100, L2: (+gv('sla_esc_l2') || 0) / 100,
+    L3: (+gv('sla_esc_l3') || 0) / 100, L4: (+gv('sla_esc_l4') || 0) / 100,
+  };
+  api('PUT', '/admin/sla', { sla: { escalation_pcts: pcts } }).then(function () { toast('Saved'); loadAdminSection('sla'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminSaveVipKeywords() {

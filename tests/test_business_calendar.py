@@ -129,3 +129,55 @@ def test_ticket_due_date_respects_a_business_hours_calendar_end_to_end(client):
     # 60 min left Monday (17-18) + 120 more starting Tuesday 09:00 -> 11:00.
     assert sla["due_at"] == datetime.datetime(2026, 1, 6, 11, 0)
     assert sla["policy_code"] == "MACHINE-P2-BIZ"
+
+
+def test_sla_sweep_pct_used_is_business_calendar_correct(client):
+    """Phase 5 fix: pct_used (which drives L1-L4 auto-escalation thresholds -
+    see app/services/sla_sweep.py's _pct_used) must be computed in business
+    minutes under a non-24x7 calendar, not wall-clock minutes. Before the
+    fix, dividing a wall-clock mins-remaining by a business-minutes tat_mins
+    could go wildly negative for a ticket raised just before closing time -
+    e.g. here, due_at is ~19 wall-clock hours away (Monday 17:05 ->
+    Tuesday 12:00) but almost no BUSINESS time has actually elapsed."""
+    # Scoped to a dedicated Sub-Category (not just Category+Priority) so this
+    # policy can't shadow the baseline P1 policy other tests rely on for
+    # plain MACHINE tickets with no sub-category - see resolve_policy()'s
+    # sub-category > category > ticket_type > baseline precedence.
+    sub = client.post("/cccapi/admin/reasons", json={
+        "code": "PCTBIZ-SUB", "category_code": "MACHINE", "label": "Pct Used Calendar Test",
+    }, headers=MGR)
+    assert sub.status_code == 200, sub.text
+
+    client.post("/cccapi/admin/calendars", json={
+        "code": "PCT-BIZ", "name": "Pct Used Business Hours", "is_24x7": False, "working_hours": _BUSINESS_HOURS,
+    }, headers=MGR)
+    r = client.post("/cccapi/admin/sla-policies", json={
+        "code": "MACHINE-P1-PCTBIZ", "priority_code": "P1", "resolution_mins": 240,
+        "category_code": "MACHINE", "subcategory_code": "PCTBIZ-SUB", "calendar_code": "PCT-BIZ",
+    }, headers=MGR)
+    assert r.status_code == 200, r.text
+
+    tid = _make_ticket(client, priority="P1", subcategory_code="PCTBIZ-SUB").json()["id"]
+    assert db_get(tid).sla_policy_code == "MACHINE-P1-PCTBIZ"
+
+    # Monday 17:00 start, 240-min (4h) TAT on a 9-18 calendar: 60 min left
+    # that day (17-18) + 180 more starting Tuesday 09:00 -> due_at Tue 12:00.
+    db = SessionLocal()
+    db.query(Ticket).filter(Ticket.id == tid).update({
+        "created_at": datetime.datetime(2026, 1, 5, 17, 0),
+        "due_at": datetime.datetime(2026, 1, 6, 12, 0),
+        "tat_mins": 240,
+    })
+    db.commit()
+    db.close()
+
+    from app.services.sla_sweep import _pct_used
+    dbs = SessionLocal()
+    t = dbs.query(Ticket).filter(Ticket.id == tid).first()
+    now = datetime.datetime(2026, 1, 5, 17, 5)  # 5 real minutes after creation
+    pct = _pct_used(dbs, t, now, {})
+    dbs.close()
+
+    # Barely any business time has elapsed - the old wall-clock-vs-business-
+    # minutes bug would have produced a large NEGATIVE pct here instead.
+    assert 0 <= pct <= 0.05

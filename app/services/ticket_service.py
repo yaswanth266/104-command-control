@@ -42,6 +42,18 @@ def _require_transition(ticket: Ticket, action: str):
     if ticket.status not in allowed:
         raise HTTPException(409, f"SOP: '{action}' is not valid while the ticket is {ticket.status}")
 
+_LEVEL_ORDER = ["L1", "L2", "L3", "L4"]
+
+def _next_level(level: str) -> str:
+    """The level after `level`, capped at L4 - used when a human manually
+    escalates (phase 5) so the auto SLA sweep's ascending walk
+    (app/services/sla_sweep.py) doesn't re-page a level they already blew
+    past."""
+    try:
+        return _LEVEL_ORDER[_LEVEL_ORDER.index(level) + 1]
+    except (ValueError, IndexError):
+        return "L4"
+
 def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: ActionIn):
     act = action_in.action.lower()
     role = user["role"]
@@ -192,7 +204,8 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         setf("ESCALATED", f"Escalated to Global Team Executive: {reason}",
              "ticket.escalated",
              escalated=True, escalated_at=now, escalated_to='CC_MANAGER', escalation_note=reason,
-             escalation_count=(ticket.escalation_count or 0) + 1)
+             escalation_count=(ticket.escalation_count or 0) + 1,
+             current_level=_next_level(ticket.current_level or "L1"))
         notify_escalated(db, ticket, reason)
 
     elif act == "assign":

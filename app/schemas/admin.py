@@ -1,4 +1,4 @@
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Any
 from pydantic import BaseModel
 
 class TeamIn(BaseModel):
@@ -143,7 +143,11 @@ class VehicleUpdate(BaseModel):
     is_active: Optional[bool] = None
 
 class SlaUpdate(BaseModel):
-    sla: Optional[Dict[str, float]] = None
+    # Dict[str, Any] rather than Dict[str, float]: most keys are plain
+    # numbers, but 'escalation_pcts' (phase 5) is itself a nested
+    # {"L1"..."L4": float} dict - see crud_settings.update_sla_config for
+    # the actual per-key validation.
+    sla: Optional[Dict[str, Any]] = None
     tat: Optional[Dict[str, int]] = None
     vip_keywords: Optional[List[str]] = None
 

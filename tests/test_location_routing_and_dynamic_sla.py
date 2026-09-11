@@ -10,11 +10,11 @@ but never proven together in one continuous story:
    proven with a second, independently-created LT/location pair (distinct
    from conftest's single fixed LT_CDA_TEAM), so the test can't pass just
    because there happens to be only one CDA team configured.
-3. A single ticket walked through the real tiered SLA timeline (50% ->
-   assignee warning, 80% -> team-manager warning, 100%+ -> breach + auto-
-   escalation to the CC Manager) via repeated sweeps against progressively
-   aged timestamps, confirming the tiers fire in the right order, at the
-   right time, without re-firing or skipping."""
+3. A single ticket walked through the real L1-L4 SLA escalation timeline
+   (phase 5: 30/50/70/90% -> that level's occupant, 100%+ -> breach +
+   auto-escalation to the CC Manager) via repeated sweeps against
+   progressively aged timestamps, confirming the levels fire in the right
+   order, at the right time, without re-firing or skipping."""
 import datetime
 from tests.conftest import auth_headers, LT_CATEGORY, LT_REASON_CODES
 from app.db.database import SessionLocal
@@ -141,46 +141,73 @@ def _notif_types(client, headers, ticket_id):
 
 def test_dynamic_sla_tiers_fire_in_order_without_skipping_or_repeating(client):
     """One ticket, walked forward through its whole TAT timeline with repeated
-    sweeps - confirms the tiers activate progressively (nothing fires early),
-    each fires exactly once (no duplicate warnings on later sweeps), and the
-    final breach correctly reaches the CC Manager and auto-escalates."""
+    sweeps - confirms the L1-L4 levels activate progressively in order
+    (nothing fires early), each fires exactly once (no duplicate escalation
+    on later sweeps at the same age), and the final breach correctly reaches
+    the CC Manager and auto-escalates. Each aging step below only newly
+    crosses ONE threshold past whatever was already fired in the previous
+    step, so a single sweep per step is enough (see
+    app/services/sla_sweep.py's _escalate_level: an already-fired level is
+    skipped with no sweep pass consumed - only a freshly-crossed level with
+    a real occupant to notify consumes one)."""
     db = SessionLocal()
     db.query(User).filter(User.username == "service").update({"is_team_manager": True})
     db.commit()
     db.close()
     try:
         tid = _make_ticket_for_sla_walk(client)
-        client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=SVC)  # sets assignee
+        client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=SVC)
 
         # --- Well within TAT: nothing should have fired yet ---
-        _age_to(tid, 0.30, tat_mins=240)
+        _age_to(tid, 0.25, tat_mins=240)
         run_sla_sweep_once()
         types = _notif_types(client, SVC, tid)
-        assert "TAT_ASSIGNEE_WARN" not in types
-        assert "TAT_TEAM_MANAGER_WARN" not in types
+        assert not any(t.startswith("ESCALATED") for t in types)
         detail = client.get(f"/cccapi/ticket/{tid}", headers=MGR).json()["ticket"]
         assert detail["escalated"] is False
+        assert detail["current_level"] == "L1"
 
-        # --- Past 50%: assignee warned, manager/CC still silent ---
+        # --- Past L1 (30%): L1's occupant notified, nothing higher fires ---
+        _age_to(tid, 0.35, tat_mins=240)
+        run_sla_sweep_once()
+        types = _notif_types(client, SVC, tid)
+        assert types.count("ESCALATED_L1") == 1
+        assert "ESCALATED_L2" not in types
+        assert "BREACHED" not in _notif_types(client, MGR, tid)
+
+        # --- Sweeping again at the SAME age must not re-fire the same level ---
+        run_sla_sweep_once()
+        assert _notif_types(client, SVC, tid).count("ESCALATED_L1") == 1
+
+        # --- Past L2 (50%): L2 fires, L1 not duplicated ---
         _age_to(tid, 0.55, tat_mins=240)
         run_sla_sweep_once()
         types = _notif_types(client, SVC, tid)
-        assert types.count("TAT_ASSIGNEE_WARN") == 1
-        assert "TAT_TEAM_MANAGER_WARN" not in types
-        assert "BREACHED" not in _notif_types(client, MGR, tid)
+        assert types.count("ESCALATED_L1") == 1
+        assert types.count("ESCALATED_L2") == 1
+        assert "ESCALATED_L3" not in types
+        detail = client.get(f"/cccapi/ticket/{tid}", headers=MGR).json()["ticket"]
+        assert detail["current_level"] == "L2"
+        assert detail["escalated"] is False
 
-        # --- Sweeping again at the SAME age must not re-fire the same tier ---
-        run_sla_sweep_once()
-        assert _notif_types(client, SVC, tid).count("TAT_ASSIGNEE_WARN") == 1
-
-        # --- Past 80%: team manager warned too, assignee warn not duplicated ---
-        _age_to(tid, 0.85, tat_mins=240)
+        # --- Past L3 (70%) ---
+        _age_to(tid, 0.75, tat_mins=240)
         run_sla_sweep_once()
         types = _notif_types(client, SVC, tid)
-        assert types.count("TAT_ASSIGNEE_WARN") == 1
-        assert types.count("TAT_TEAM_MANAGER_WARN") == 1
-        assert "BREACHED" not in _notif_types(client, MGR, tid)
+        assert types.count("ESCALATED_L3") == 1
+        assert "ESCALATED_L4" not in types
+
+        # --- Past L4 (90%): L4's default occupant is CC_MANAGER itself (the
+        # default ladder's terminal level), so this one lands in the CC
+        # Manager's feed rather than SERVICE's. ---
+        _age_to(tid, 0.95, tat_mins=240)
+        run_sla_sweep_once()
+        mgr_types = _notif_types(client, MGR, tid)
+        assert mgr_types.count("ESCALATED_L4") == 1
+        assert "ESCALATED_L4" not in _notif_types(client, SVC, tid)
+        assert "BREACHED" not in mgr_types
         detail = client.get(f"/cccapi/ticket/{tid}", headers=MGR).json()["ticket"]
+        assert detail["current_level"] == "L4"
         assert detail["escalated"] is False
 
         # --- Past 100%: breach reaches the CC Manager and auto-escalates ---
@@ -197,6 +224,7 @@ def test_dynamic_sla_tiers_fire_in_order_without_skipping_or_repeating(client):
         detail = client.get(f"/cccapi/ticket/{tid}", headers=MGR).json()["ticket"]
         assert detail["escalated"] is True
         assert detail["tat_state"] == "BREACHED"
+        assert detail["current_level"] == "L4"
 
         # --- Breach sweep is idempotent: repeat sweeps must not add more ---
         run_sla_sweep_once()

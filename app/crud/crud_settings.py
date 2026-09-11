@@ -9,14 +9,14 @@ SLA_DEFAULT = {
     "critical_minutes": 15, "critical_fraction": 0.05,
     "resolved_followup_hours": 4,
     "reopen_window_hours": 24,
-    # Tiered notification AUDIENCE (separate from the at_risk/critical pair
-    # above, which still drive the visual ON TRACK/AT RISK/CRITICAL/BREACHED
-    # pill unchanged). Percent of TAT consumed at which each tier notifies -
-    # the assignee individually first, then that team's Team Manager(s),
-    # before BREACHED (100%) reaches CC_MANAGER - so the CC Manager isn't
-    # copied on every single warning across every district (alarm fatigue).
-    "assignee_warn_pct": 0.5,
-    "team_manager_warn_pct": 0.8,
+    # L1-L4 auto-escalation (phase 5): percent of the ticket's Resolution SLA
+    # consumed (business-calendar-correct - see sla_sweep.py's _pct_used())
+    # at which each level's occupant is notified and current_level advances,
+    # ascending L1->L4; 100% is the fixed BREACHED/CC_MANAGER escalation
+    # below and isn't configurable here. Replaces the old two-tier
+    # assignee_warn_pct/team_manager_warn_pct scheme (see
+    # app/services/sla_sweep.py's _sweep_open_tickets()).
+    "escalation_pcts": {"L1": 0.3, "L2": 0.5, "L3": 0.7, "L4": 0.9},
     # LT self-service: if an LT-raised ticket sits with its CDA team without
     # being resolved this long, auto-escalate to CC_MANAGER (see
     # app/services/sla_sweep.py's _sweep_lt_cda_timeouts).
@@ -59,13 +59,30 @@ def get_sla_config(db: Session) -> dict:
             return dict(SLA_DEFAULT)
     return dict(SLA_DEFAULT)
 
+_ESCALATION_LEVELS = ("L1", "L2", "L3", "L4")
+
+def _parse_escalation_pcts(pcts) -> dict:
+    if not isinstance(pcts, dict) or set(pcts) != set(_ESCALATION_LEVELS):
+        raise HTTPException(400, f"'escalation_pcts' must have exactly {list(_ESCALATION_LEVELS)}")
+    try:
+        parsed = {k: float(pcts[k]) for k in _ESCALATION_LEVELS}
+    except (TypeError, ValueError):
+        raise HTTPException(400, "'escalation_pcts' values must be numbers")
+    if not all(0 < parsed[k] < 1 for k in _ESCALATION_LEVELS):
+        raise HTTPException(400, "'escalation_pcts' values must be between 0 and 1")
+    if not (parsed["L1"] < parsed["L2"] < parsed["L3"] < parsed["L4"]):
+        raise HTTPException(400, "'escalation_pcts' must be strictly ascending L1 < L2 < L3 < L4")
+    return parsed
+
 def update_sla_config(db: Session, patch: dict) -> dict:
     cfg = get_sla_config(db)
     minute_fields = ("at_risk_minutes", "critical_minutes", "resolved_followup_hours", "reopen_window_hours",
                      "lt_cda_escalation_minutes", "pending_escalation_hours")
-    fraction_fields = ("at_risk_fraction", "critical_fraction", "assignee_warn_pct", "team_manager_warn_pct")
+    fraction_fields = ("at_risk_fraction", "critical_fraction")
+    if "escalation_pcts" in patch:
+        cfg["escalation_pcts"] = _parse_escalation_pcts(patch["escalation_pcts"])
     for k, v in patch.items():
-        if k not in cfg:
+        if k == "escalation_pcts" or k not in cfg:
             continue
         try:
             v = float(v)
@@ -76,8 +93,6 @@ def update_sla_config(db: Session, patch: dict) -> dict:
         if k in fraction_fields and not (0 <= v <= 1):
             raise HTTPException(400, f"'{k}' must be between 0 and 1")
         cfg[k] = v
-    if cfg["assignee_warn_pct"] >= cfg["team_manager_warn_pct"]:
-        raise HTTPException(400, "'assignee_warn_pct' must be less than 'team_manager_warn_pct'")
     _set_config_row(db, "sla", cfg)
     return cfg
 

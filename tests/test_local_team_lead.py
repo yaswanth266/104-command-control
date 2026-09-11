@@ -106,32 +106,41 @@ def test_toggle_on_new_ticket_personally_notifies_district_lead(client):
         _set_dispatch(client, False)
 
 
-def test_toggle_on_50pct_warns_local_lead_instead_of_statewide_exec(client):
+def test_toggle_on_l2_warns_local_lead_instead_of_statewide_exec(client):
+    """The Local Team Lead concept survives phase 5's L1-L4 escalation
+    ladder as L2's *default occupant*, resolved once at ticket creation
+    (app/services/hierarchy.py's _resolve_local) - the sweep itself no
+    longer picks between local lead and statewide exec, it just notifies
+    whoever chain resolution already put at L2. Two sweep calls: the first
+    fires L1 (a team-wide broadcast, not the focus of this test), the
+    second reaches L2 since only one level fires per pass."""
     _set_dispatch(client, True)
     _upsert_local_lead("svc_lead_c", lt_ids["district_id"])
     _set_team_manager("service", True)  # statewide Team Executive, no district set
     try:
         tid = _make_district_ticket(client, lt_ids["district_id"])
-        age_ticket(tid, 0.85)
+        age_ticket(tid, 0.55)  # past L1 (30%) and L2 (50%), not yet L3 (70%)
+        run_sla_sweep_once()
         run_sla_sweep_once()
         lead_types = notif_types_for(client, auth_headers("SERVICE", username="svc_lead_c"), tid)
         exec_types = notif_types_for(client, SVC, tid)
-        assert "TAT_TEAM_MANAGER_WARN" in lead_types
-        assert "TAT_TEAM_MANAGER_WARN" not in exec_types
+        assert "ESCALATED_L2" in lead_types
+        assert "ESCALATED_L2" not in exec_types
     finally:
         _delete_user("svc_lead_c")
         _set_team_manager("service", False)
         _set_dispatch(client, False)
 
 
-def test_toggle_on_50pct_falls_back_to_statewide_exec_when_no_local_lead(client):
+def test_toggle_on_l2_falls_back_to_statewide_exec_when_no_local_lead(client):
     _set_dispatch(client, True)
     _set_team_manager("service", True)
     try:
         tid = _make_district_ticket(client, lt_ids["district_id"])
-        age_ticket(tid, 0.85)
+        age_ticket(tid, 0.55)
         run_sla_sweep_once()
-        assert "TAT_TEAM_MANAGER_WARN" in notif_types_for(client, SVC, tid)
+        run_sla_sweep_once()
+        assert "ESCALATED_L2" in notif_types_for(client, SVC, tid)
     finally:
         _set_team_manager("service", False)
         _set_dispatch(client, False)
