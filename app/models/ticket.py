@@ -38,6 +38,14 @@ class Ticket(Base):
     category_label_snapshot = Column(String(191))
     subcategory_label_snapshot = Column(String(191))
     priority = Column(String(4), index=True)
+    # Impact/Urgency -> Priority (phase 2): impact_code/urgency_code are the
+    # structured HIGH/MEDIUM/LOW inputs to the matrix, distinct from the
+    # pre-existing free-text `impact` column above. original_priority is a
+    # creation-time snapshot - `priority` itself is later mutated by the
+    # repriority action, original_priority never is.
+    impact_code = Column(String(16))
+    urgency_code = Column(String(16))
+    original_priority = Column(String(4))
     team = Column(String(24), index=True)
     owner = Column(String(128))
     assignee = Column(String(64))

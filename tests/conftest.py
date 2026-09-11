@@ -31,7 +31,7 @@ _ensure_test_db()
 
 from app.db.database import Base, engine, SessionLocal  # noqa: E402
 from app.models import (User, Ticket, Event, Notification, Team, Category,  # noqa: E402
-                         District, Mandal, Zone, Vehicle, Reason, Machine, TicketType)
+                         District, Mandal, Zone, Vehicle, Reason, Machine, TicketType, Priority, PriorityMatrix)
 from app.core.security import hash_pw, mktoken  # noqa: E402
 
 ROLES = ["CC_MANAGER", "CALL_TAKER", "SERVICE", "APPLICATION", "QUALITY", "TECHNICAL", "NETWORK", "FIELD_OPS", "FLEET"]
@@ -61,6 +61,18 @@ _SEED_TICKET_TYPES = [
     ("SERVICE_REQUEST", "Service Request", False),
     ("CHANGE_REQUEST", "Change Request", True),
 ]
+# Mirrors alembic/versions/c7e9a1b3d5f7's seed data.
+_SEED_PRIORITIES = [
+    ("P1", "Critical", "Critical - MMU unable to operate / major service interruption", 1, 1),
+    ("P2", "High", "High - major equipment/application/network issue affecting operations", 2, 2),
+    ("P3", "Medium", "Medium - issue with workaround available", 3, 3),
+    ("P4", "Low", "Low - non-critical request / information issue", 4, 4),
+]
+_SEED_PRIORITY_MATRIX = [
+    ("HIGH", "HIGH", "P1"), ("HIGH", "MEDIUM", "P2"), ("HIGH", "LOW", "P2"),
+    ("MEDIUM", "HIGH", "P2"), ("MEDIUM", "MEDIUM", "P3"), ("MEDIUM", "LOW", "P3"),
+    ("LOW", "HIGH", "P3"), ("LOW", "MEDIUM", "P4"), ("LOW", "LOW", "P4"),
+]
 _SEED_CATEGORIES = [
     ("MACHINE", "Machine / Instrument Breakdown", "SERVICE", "Service Engineer"),
     ("QC", "QC Failure / Quality Issue", "QUALITY", "Quality Person / Application Person"),
@@ -84,6 +96,11 @@ def _schema():
                      pw=hash_pw("testpass123"), active=True))
     for code, label, requires_approval in _SEED_TICKET_TYPES:
         db.add(TicketType(code=code, label=label, requires_approval=requires_approval, is_active=True))
+    for code, label, description, severity, display_order in _SEED_PRIORITIES:
+        db.add(Priority(code=code, label=label, description=description, severity=severity,
+                         display_order=display_order, is_active=True))
+    for impact_code, urgency_code, priority_code in _SEED_PRIORITY_MATRIX:
+        db.add(PriorityMatrix(impact_code=impact_code, urgency_code=urgency_code, priority_code=priority_code))
     for code, name in _SEED_TEAMS:
         db.add(Team(code=code, name=name, is_active=True))
     for code, label, team_code, owner in _SEED_CATEGORIES:

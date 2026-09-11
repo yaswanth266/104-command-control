@@ -229,7 +229,7 @@ def dispatch_webhook_event(event: str, data: dict, db: Optional[Session] = None)
 def _ticket_payload(db: Session, ticket, actor: str, old_status: Optional[str], extra: Optional[dict]) -> dict:
     from app.crud.crud_category import get_category_map
     from app.crud.crud_team import get_team_map
-    from app.core.config import PRIORITY
+    from app.crud.crud_priority import get_priority_map
 
     cat_info = get_category_map(db).get(ticket.category, {})
     team_map = get_team_map(db)
@@ -244,7 +244,7 @@ def _ticket_payload(db: Session, ticket, actor: str, old_status: Optional[str], 
         "category": ticket.category,
         "category_label": cat_info.get("label"),
         "priority": ticket.priority,
-        "priority_label": PRIORITY.get(ticket.priority),
+        "priority_label": get_priority_map(db).get(ticket.priority),
         "team": ticket.team,
         "team_label": team_map.get(ticket.team, ticket.team),
         "mmu_vehicle": ticket.mmu_vehicle,
@@ -292,10 +292,10 @@ def dispatch_category_event(db: Session, event: str, category, actor: str):
 
 
 def dispatch_priority_event(db: Session, priority_code: str, tat_minutes: int, actor: str):
-    from app.core.config import PRIORITY
+    from app.crud.crud_priority import get_priority_map
     data = {
         "priority": priority_code,
-        "priority_label": PRIORITY.get(priority_code),
+        "priority_label": get_priority_map(db).get(priority_code),
         "tat_minutes": tat_minutes,
         "actor": actor,
     }

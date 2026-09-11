@@ -5,9 +5,10 @@ from app.api.deps import require_admin
 from app.schemas.admin import (TeamIn, TeamUpdate, CategoryIn, CategoryUpdate, SlaUpdate, UserIn, UserUpdate,
                                 DistrictIn, DistrictUpdate, ZoneIn, ZoneUpdate, MandalIn, MandalUpdate,
                                 VehicleIn, VehicleUpdate, ReasonIn, ReasonUpdate, MachineIn, MachineUpdate,
-                                DispatchUpdate, WebhookConfigUpdate, TicketTypeIn, TicketTypeUpdate)
+                                DispatchUpdate, WebhookConfigUpdate, TicketTypeIn, TicketTypeUpdate,
+                                PriorityIn, PriorityUpdate, PriorityMatrixCellIn)
 from app.crud import (crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason,
-                      crud_machine, crud_ticket_type)
+                      crud_machine, crud_ticket_type, crud_priority, crud_priority_matrix)
 from app.crud.crud_admin_event import log_admin_event, get_admin_events
 from app.services import webhooks as webhook_service
 
@@ -23,6 +24,13 @@ def _category_out(c):
 
 def _ticket_type_out(t):
     return {"code": t.code, "label": t.label, "requires_approval": t.requires_approval, "is_active": t.is_active}
+
+def _priority_out(p):
+    return {"code": p.code, "label": p.label, "description": p.description, "severity": p.severity,
+            "display_order": p.display_order, "is_active": p.is_active}
+
+def _matrix_cell_out(m):
+    return {"impact_code": m.impact_code, "urgency_code": m.urgency_code, "priority_code": m.priority_code}
 
 def _user_out(u):
     return {"id": u.id, "username": u.username, "name": u.name, "role": u.role, "phone": u.phone, "active": u.active,
@@ -128,6 +136,36 @@ def update_ticket_type(code: str, b: TicketTypeUpdate, db: Session = Depends(get
                                              is_active=b.is_active)
     log_admin_event(db, current_user, "TICKET_TYPE_UPDATED", "ticket_type", t.code, f"label={t.label}, is_active={t.is_active}")
     return _ticket_type_out(t)
+
+# ---------- priorities + impact/urgency matrix ----------
+
+@router.get("/priorities")
+def list_priorities(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_priority_out(p) for p in crud_priority.get_priorities(db, include_inactive=True)]
+
+@router.post("/priorities")
+def create_priority(b: PriorityIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    p = crud_priority.create_priority(db, b.code, b.label, b.description, b.severity, b.display_order)
+    log_admin_event(db, current_user, "PRIORITY_CREATED", "priority", p.code, f"label={p.label}")
+    return _priority_out(p)
+
+@router.put("/priorities/{code}")
+def update_priority(code: str, b: PriorityUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    p = crud_priority.update_priority(db, code.upper(), label=b.label, description=b.description,
+                                       severity=b.severity, display_order=b.display_order, is_active=b.is_active)
+    log_admin_event(db, current_user, "PRIORITY_UPDATED", "priority", p.code, f"label={p.label}, is_active={p.is_active}")
+    return _priority_out(p)
+
+@router.get("/priority-matrix")
+def list_priority_matrix(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_matrix_cell_out(m) for m in crud_priority_matrix.get_matrix(db)]
+
+@router.put("/priority-matrix")
+def update_priority_matrix_cell(b: PriorityMatrixCellIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    m = crud_priority_matrix.set_cell(db, b.impact_code, b.urgency_code, b.priority_code)
+    log_admin_event(db, current_user, "PRIORITY_MATRIX_UPDATED", "priority_matrix",
+                     f"{m.impact_code}/{m.urgency_code}", f"priority_code={m.priority_code}")
+    return _matrix_cell_out(m)
 
 # ---------- machines ----------
 

@@ -3,7 +3,7 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.ticket import Ticket
 from app.crud.crud_event import create_event
-from app.core.config import PRIORITY
+from app.crud.crud_priority import get_priority
 from app.crud.crud_ticket import get_tat_map
 from app.crud.crud_team import get_team_map, get_active_team_map
 from app.crud.crud_settings import get_sla_config, get_dispatch_config
@@ -233,16 +233,18 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
             raise HTTPException(403, "Only the Global Team Executive or Call Taker may change priority")
         if ticket.status == "CLOSED":
             raise HTTPException(409, "SOP: a closed ticket must be reopened before its priority can change")
-        if action_in.priority not in PRIORITY:
-            raise HTTPException(400, "Priority must be P1-P4")
-        nt_mins = get_tat_map(db).get(action_in.priority, 1440)
+        pr = get_priority(db, (action_in.priority or "").strip().upper())
+        if not pr or not pr.is_active:
+            raise HTTPException(400, "Unknown or inactive priority")
+        nt_mins = get_tat_map(db).get(pr.code, 1440)
         # Preserve any SLA pause already credited (see setf) - otherwise a
         # priority change would silently wipe out paused time from an earlier
-        # PENDING period.
+        # PENDING period. original_priority is a creation-time snapshot and is
+        # deliberately left untouched here.
         new_due = ticket.created_at + datetime.timedelta(minutes=nt_mins + (ticket.paused_minutes or 0))
-        setf("PRIORITY", f"Priority set to {action_in.priority} (TAT {nt_mins} min)",
+        setf("PRIORITY", f"Priority set to {pr.code} (TAT {nt_mins} min)",
              "ticket.note_added",
-             priority=action_in.priority, tat_mins=nt_mins, due_at=new_due)
+             priority=pr.code, tat_mins=nt_mins, due_at=new_due)
 
     elif act == "not_resolved":
         if role not in ("CC_MANAGER", "CALL_TAKER") and not is_originating_lt and not own:

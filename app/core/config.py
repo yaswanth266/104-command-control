@@ -48,9 +48,13 @@ FLOW = ["NEW", "ASSIGNED", "ACKNOWLEDGED", "IN_PROGRESS", "PENDING", "RESOLVED",
 
 TAT_DEFAULT = {"P1": 240, "P2": 480, "P3": 1440, "P4": 4320}
 
-PRIORITY = {
-    "P1": "Critical - MMU unable to operate / major service interruption",
-    "P2": "High - major equipment/application/network issue affecting operations",
-    "P3": "Medium - issue with workaround available",
-    "P4": "Low - non-critical request / information issue",
-}
+# Priority is now a DB-backed master (app/models/priority.py, ccc_priority) -
+# admin-editable label/description, seeded with these same P1-P4 codes/text
+# by the migration. Not read from here anymore; see app/crud/crud_priority.py.
+
+# Fixed Impact/Urgency levels feeding the Priority matrix (ccc_priority_matrix,
+# app/crud/crud_priority_matrix.py). Fixed like FLOW above, not a master table -
+# only the matrix's cell values (which Priority each combination maps to) are
+# admin-editable, not the level set itself.
+IMPACT_LEVELS = ["HIGH", "MEDIUM", "LOW"]
+URGENCY_LEVELS = ["HIGH", "MEDIUM", "LOW"]

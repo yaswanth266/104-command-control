@@ -649,6 +649,7 @@ function renderNavTree() {
       { id: 'vehicles', label: 'Vehicles', icon: '🚐' },
       { id: 'tickettypes', label: 'Ticket Types', icon: '🏗️' },
       { id: 'reasons', label: 'Sub-Categories', icon: '🗂️' },
+      { id: 'priorities', label: 'Priorities & Matrix', icon: '🎯' },
       { id: 'machines', label: 'Machines', icon: '🔬' },
       { id: 'sla', label: 'SLA & TAT', icon: '⏱️' },
       { id: 'users', label: 'Users', icon: '👥' },
@@ -849,6 +850,11 @@ function tatPill(t) {
   var extra = (t.mins_left != null && t.status !== 'CLOSED') ? (' · ' + (t.mins_left < 0 ? ('+' + Math.abs(t.mins_left)) : t.mins_left) + 'm') : '';
   return '<span class="pill ' + k + '">' + esc(s) + extra + '</span>';
 }
+function priorityPill(code) {
+  if (!code) return '';
+  var label = (META.priorities && META.priorities[code] && META.priorities[code].label) || code;
+  return '<span class="pill p-' + esc(code) + '" title="' + esc(code) + '">' + esc(label) + '</span>';
+}
 function statusPill(status) {
   var s = (status || '').toUpperCase();
   var label = esc(s.replace(/_/g, ' '));
@@ -885,7 +891,10 @@ function applyFilters() {
 
   var stEl = document.getElementById('qf_status');
   if (stEl) FILT.status = stEl.value;
-  
+
+  var priEl = document.getElementById('qf_priority');
+  if (priEl) FILT.priority = priEl.value;
+
   var deptEl = document.getElementById('qf_dept');
   FILT.team = deptEl ? deptEl.value : '';
 
@@ -956,6 +965,7 @@ function clearFilters() {
   FILT.status = '';
   FILT.scope = '';
   FILT.team = '';
+  FILT.priority = '';
   FILT.category = '';
   FILT.district = '';
   FILT.district_id = '';
@@ -1009,8 +1019,8 @@ function renderQueueRow(t) {
 
   return '<tr class="row" onclick="openT(' + t.id + ')">' +
     '<td style="white-space:nowrap">' +
-      '<div style="font-weight:700;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:6px">' +
-        '<span>' + esc(t.ticket_no) + '</span>' + vipBadge +
+      '<div style="font-weight:700;font-size:13px;color:var(--ink);display:flex;align-items:center;gap:6px;flex-wrap:wrap">' +
+        '<span>' + esc(t.ticket_no) + '</span>' + priorityPill(t.priority) + vipBadge +
       '</div>' +
       '<div class="muted" style="font-size:11.5px;margin-top:2px">' + esc(t.source) + '</div>' +
     '</td>' +
@@ -1116,6 +1126,13 @@ function viewQueue() {
     return '<option value="' + s.id + '"' + ((FILT.status || '') === s.id ? ' selected' : '') + '>' + esc(s.label) + '</option>';
   }).join('');
 
+  var prioritySelectHtml = '<option value="">All Priorities</option>' +
+    Object.keys(META.priorities || {}).sort(function (a, b) {
+      return (META.priorities[a].display_order || 0) - (META.priorities[b].display_order || 0);
+    }).map(function (code) {
+      return '<option value="' + code + '"' + ((FILT.priority || '') === code ? ' selected' : '') + '>' + esc(META.priorities[code].label) + ' (' + code + ')</option>';
+    }).join('');
+
   var distOptions = '<option value="">All Locations (Statewide)</option>';
   if (META && META.districts) {
     distOptions += META.districts.map(function (d) {
@@ -1171,6 +1188,7 @@ function viewQueue() {
     '<div class="qf-grid">' +
       '<div class="qf-fld" style="flex:1.2;min-width:170px"><label class="qf-label">Search</label><input id="qf_q" class="qf-input" value="' + esc(FILT.q) + '" placeholder="Ticket #, vehicle, problem..." onkeydown="if(event.key===\'Enter\')applyFilters()"></div>' +
       '<div class="qf-fld" style="flex:0.9;min-width:130px"><label class="qf-label">Status</label><select id="qf_status" class="qf-select" onchange="applyFilters()">' + statusSelectHtml + '</select></div>' +
+      '<div class="qf-fld" style="flex:0.9;min-width:150px"><label class="qf-label">Priority</label><select id="qf_priority" class="qf-select" onchange="applyFilters()">' + prioritySelectHtml + '</select></div>' +
       (isCCManagerOrAdmin ? ('<div class="qf-fld" style="flex:1.1;min-width:150px"><label class="qf-label">Location</label><select id="qf_dist" class="qf-select" onchange="applyFilters()">' + distOptions + '</select></div>') : '') +
       (isCCManagerOrAdmin ? ('<div class="qf-fld" style="flex:1.1;min-width:150px"><label class="qf-label">Department</label><select id="qf_dept" class="qf-select" onchange="applyFilters()">' + deptOptions + '</select></div>') : '') +
       '<div class="qf-fld" style="flex:1;min-width:130px"><label class="qf-label">Date Filter</label><select id="qf_time" class="qf-select" onchange="onTimePresetChange(this.value)">' + timeSelectHtml + '</select></div>' +
@@ -1325,6 +1343,12 @@ function viewNew() {
         '<div class="fld"><label>Ticket Type</label><select id="f_tt">' + Object.keys(META.ticket_types || {}).map(function (k) { return '<option value="' + k + '">' + esc(META.ticket_types[k].label) + '</option>'; }).join('') + '</select></div>' +
         '</div>' +
         '<div class="fld"><label>Sub-Category (optional)</label><select id="f_subcat"><option value="">— None —</option></select></div>' +
+        '<div class="grid3">' +
+        '<div class="fld"><label>Impact (optional)</label><select id="f_impact" onchange="updatePrioritySuggestion()"><option value="">— Not specified —</option>' + (META.impact_levels || []).map(function (lvl) { return '<option value="' + lvl + '">' + esc(lvl) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="fld"><label>Urgency (optional)</label><select id="f_urgency" onchange="updatePrioritySuggestion()"><option value="">— Not specified —</option>' + (META.urgency_levels || []).map(function (lvl) { return '<option value="' + lvl + '">' + esc(lvl) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="fld"><label>Priority *</label><select id="f_pri">' + Object.keys(META.priorities || {}).sort(function (a, b) { return (META.priorities[a].display_order || 0) - (META.priorities[b].display_order || 0); }).map(function (code) { return '<option value="' + code + '"' + (code === 'P2' ? ' selected' : '') + '>' + esc(META.priorities[code].label) + ' (' + code + ')</option>'; }).join('') + '</select></div>' +
+        '</div>' +
+        '<div class="muted" id="f_pri_suggestion" style="margin-top:-6px;margin-bottom:10px"></div>' +
         '<div class="route" id="rpre" style="margin-top:10px"></div>' +
         '<div class="fld" style="margin-top:14px"><label style="display:flex;justify-content:space-between;align-items:center"><span>Attach Images / Evidence (optional)</span><span class="muted" style="font-size:12px;font-weight:normal">Multiple files supported (images, PDFs)</span></label>' +
         '<input type="file" id="f_photos" accept="image/*,.pdf,.doc,.docx" multiple onchange="previewNewTicketPhotos()" style="width:100%"><div id="f_photos_prev" class="photo-gallery"></div></div>' +
@@ -1365,6 +1389,18 @@ function previewRoute() {
   var c = document.getElementById('f_cat').value, r = META.routing[c];
   document.getElementById('rpre').innerHTML = 'Routes to <b>' + esc(META.teams[r.team]) + '</b> &mdash; initial owner <b>' + esc(r.owner) + '</b>';
   updateSubcategoryOptions();
+}
+function updatePrioritySuggestion() {
+  var box = document.getElementById('f_pri_suggestion');
+  if (!box) return;
+  var impact = document.getElementById('f_impact').value, urgency = document.getElementById('f_urgency').value;
+  if (!impact || !urgency) { box.innerHTML = ''; return; }
+  var suggested = (META.priority_matrix && META.priority_matrix[impact] || {})[urgency];
+  if (!suggested) { box.innerHTML = ''; return; }
+  var label = (META.priorities && META.priorities[suggested] && META.priorities[suggested].label) || suggested;
+  box.innerHTML = 'Suggested priority: <b>' + esc(label) + ' (' + esc(suggested) + ')</b> — you can still change Priority above.';
+  var priSel = document.getElementById('f_pri');
+  if (priSel) priSel.value = suggested;
 }
 function updateSubcategoryOptions() {
   var sel = document.getElementById('f_subcat');
@@ -1498,7 +1534,8 @@ function createT() {
     district_id: districtId ? +districtId : null, mandal_id: mandalId ? +mandalId : null, machine_id: machineId ? +machineId : null,
     location: g('f_loc'), caller_name: g('f_cname'),
     caller_phone: g('f_cph'), equipment: g('f_eq'), problem: g('f_prob'), error_code: g('f_err'), impact: g('f_imp'),
-    category: g('f_cat'), priority: 'P1', ticket_type: g('f_tt') || undefined, subcategory_code: g('f_subcat') || undefined
+    category: g('f_cat'), priority: g('f_pri'), impact_code: g('f_impact') || undefined, urgency_code: g('f_urgency') || undefined,
+    ticket_type: g('f_tt') || undefined, subcategory_code: g('f_subcat') || undefined
   })
     .then(function (d) {
       window._NEW_TICKET_FILES = [];
@@ -1612,10 +1649,10 @@ function renderT(t, evs) {
     '<div class="sh"><div><div style="font-size:19px;font-weight:800">' + esc(t.ticket_no) + ' &middot; ' + esc(t.category_label) + (t.vip ? ' <span class="pill p-crit">VIP</span>' : '') + '</div>' +
     '<div style="font-size:12.5px;opacity:.9;margin-top:3px">' + esc(t.mmu_vehicle || '—') + ' &middot; ' + esc(t.district || '') + ' &middot; ' + esc(t.team_label) + ' &middot; <span class="pill p-crit" style="font-size:10.5px;padding:2px 7px">EMERGENCY SERVICE</span></div></div>' +
     '<button class="x" onclick="closeT()">&times;</button></div><div class="sb">' +
-    '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px"><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + tatPill(t).replace('<span ', '<span id="modalTat" ') +
+    '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px">' + priorityPill(t.priority) + '<span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + tatPill(t).replace('<span ', '<span id="modalTat" ') +
     (t.escalated ? '<span class="pill p-crit">ESCALATED' + (t.escalation_count > 1 ? ' &times;' + esc(t.escalation_count) : '') + '</span>' : '') + '<span class="pill p-mut">TAT ' + esc(t.tat_mins) + ' min</span>' +
     (t.paused_minutes ? '<span class="pill p-mut">Paused ' + esc(t.paused_minutes) + 'm so far</span>' : '') + '</div>' +
-    '<div class="grid2"><div>' + row('Ticket Type', (META.ticket_types && META.ticket_types[t.ticket_type] && META.ticket_types[t.ticket_type].label) || t.ticket_type) + row('Sub-Category', t.subcategory_label_snapshot) + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) +
+    '<div class="grid2"><div>' + row('Ticket Type', (META.ticket_types && META.ticket_types[t.ticket_type] && META.ticket_types[t.ticket_type].label) || t.ticket_type) + row('Sub-Category', t.subcategory_label_snapshot) + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) + row('Impact Level', t.impact_code) + row('Urgency Level', t.urgency_code) +
     row('Caller', (t.caller_name || '') + (t.caller_phone ? (' · ' + t.caller_phone) : '')) + row('Location', t.location) + '</div>' +
     '<div>' + row('Raised At', formatDT(t.created_at)) + row('Due (TAT)', formatDT(t.due_at)) + row('Acknowledged', formatDT(t.acknowledged_at)) + row('Resolved', formatDT(t.resolved_at)) +
     row('Assigned to', t.assignee) + row('Confirmed by', t.confirmed_by) + row('Closed', formatDT(t.closed_at)) + row('Owner', t.owner) +
@@ -2618,6 +2655,7 @@ function loadAdminSection(t) {
   });
   else if (t === 'vehicles') api('GET', '/admin/vehicles').then(function (d) { ADMIN_VEHICLES = d; ADMIN_LOADED.vehicles = true; if (ADMIN_TAB === 'vehicles') render(); });
   else if (t === 'tickettypes') loadAdminTicketTypes();
+  else if (t === 'priorities') loadAdminPriorities();
   else if (t === 'reasons') api('GET', '/admin/categories').then(function (c) {
     ADMIN_CATEGORIES = c;
     api('GET', '/admin/reasons').then(function (d) { ADMIN_REASONS = d; ADMIN_LOADED.reasons = true; if (ADMIN_TAB === 'reasons') render(); });
@@ -2633,6 +2671,7 @@ function viewAdmin() {
     vehicles: 'MMU Vehicle Fleet Registry',
     tickettypes: 'Ticket Types & Approval Rules',
     reasons: 'Sub-Categories (Incident / Request Reasons)',
+    priorities: 'Priorities & Impact/Urgency Matrix',
     machines: 'Diagnostic Machines & Equipment',
     sla: 'SLA Priorities & TAT Benchmarks',
     users: 'System Users & Role Assignments',
@@ -2649,6 +2688,7 @@ function viewAdmin() {
   else if (ADMIN_TAB === 'geo') body = viewAdminGeo();
   else if (ADMIN_TAB === 'vehicles') body = viewAdminVehicles();
   else if (ADMIN_TAB === 'tickettypes') body = viewAdminTicketTypes();
+  else if (ADMIN_TAB === 'priorities') body = viewAdminPriorities();
   else if (ADMIN_TAB === 'reasons') body = viewAdminReasons();
   else if (ADMIN_TAB === 'machines') body = viewAdminMachines();
   else if (ADMIN_TAB === 'sla') body = viewAdminSla();

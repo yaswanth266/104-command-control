@@ -48,6 +48,25 @@ class TicketTypeUpdate(BaseModel):
     requires_approval: Optional[bool] = None
     is_active: Optional[bool] = None
 
+class PriorityIn(BaseModel):
+    code: str
+    label: str
+    description: Optional[str] = None
+    severity: Optional[int] = None
+    display_order: Optional[int] = 0
+
+class PriorityUpdate(BaseModel):
+    label: Optional[str] = None
+    description: Optional[str] = None
+    severity: Optional[int] = None
+    display_order: Optional[int] = None
+    is_active: Optional[bool] = None
+
+class PriorityMatrixCellIn(BaseModel):
+    impact_code: str
+    urgency_code: str
+    priority_code: str
+
 class MachineIn(BaseModel):
     name: str
 

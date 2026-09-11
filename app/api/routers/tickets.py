@@ -10,15 +10,17 @@ from app.crud.crud_event import get_events_by_ticket, create_event
 from app.crud.crud_category import get_category_map, resolve_team, get_category
 from app.crud.crud_reason import get_reason
 from app.crud.crud_ticket_type import get_ticket_type
+from app.crud.crud_priority import get_priority
+from app.crud.crud_priority_matrix import resolve_priority
 from app.crud.crud_team import get_team_map
 from app.crud.crud_settings import get_sla_config, detect_vip
+from app.core.config import IMPACT_LEVELS, URGENCY_LEVELS
 from app.crud.crud_attachment import create_attachment, get_attachments_by_ticket
 from app.services.ticket_service import process_ticket_action
 from app.services.formatting import enrich, get_chronic_breakdowns_map
 from app.services.notifications import notify_new_ticket
 from app.services.photos import save_ticket_attachment
 from app.services.webhooks import dispatch_ticket_event
-from app.core.config import PRIORITY
 import datetime
 import re
 
@@ -45,8 +47,33 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     r = resolve_team(db, cat, b.mandal_id)
     if r is None:
         raise HTTPException(400, "Unknown issue category")
-    if b.priority not in PRIORITY:
-        raise HTTPException(400, "Priority must be P1-P4")
+
+    impact_code = (b.impact_code or "").strip().upper() or None
+    urgency_code = (b.urgency_code or "").strip().upper() or None
+    if impact_code and impact_code not in IMPACT_LEVELS:
+        raise HTTPException(400, f"Impact must be one of {IMPACT_LEVELS}")
+    if urgency_code and urgency_code not in URGENCY_LEVELS:
+        raise HTTPException(400, f"Urgency must be one of {URGENCY_LEVELS}")
+
+    derived_priority = None
+    if impact_code and urgency_code:
+        derived_priority = resolve_priority(db, impact_code, urgency_code)
+        if not derived_priority:
+            raise HTTPException(400, "No priority mapping configured for that Impact/Urgency combination")
+    elif impact_code or urgency_code:
+        raise HTTPException(400, "Both Impact and Urgency are required to derive a priority")
+
+    requested_priority = (b.priority or "").strip().upper() or derived_priority
+    if not requested_priority:
+        raise HTTPException(400, "Priority is required (directly, or via Impact + Urgency)")
+    pr_row = get_priority(db, requested_priority)
+    if not pr_row or not pr_row.is_active:
+        raise HTTPException(400, "Unknown or inactive priority")
+
+    override_note = ""
+    if derived_priority and requested_priority != derived_priority:
+        override_note = f" (priority overridden from matrix-suggested {derived_priority})"
+
     if not (b.problem or "").strip():
         raise HTTPException(400, "Nature of the problem is required")
     if not (b.caller_name or "").strip():
@@ -55,7 +82,7 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         raise HTTPException(400, "Caller contact must be a valid 10-digit mobile number")
 
     is_vip, vip_reason = detect_vip(db, b.vip, b.problem, b.impact)
-    priority = "P1" if is_vip else b.priority
+    priority = "P1" if is_vip else requested_priority
     tat = get_tat_map(db).get(priority, 1440)
     now = datetime.datetime.now()
 
@@ -95,6 +122,9 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         category_label_snapshot=cat_row.label if cat_row else None,
         subcategory_label_snapshot=subcat.label if subcat else None,
         priority=priority,
+        original_priority=priority,
+        impact_code=impact_code,
+        urgency_code=urgency_code,
         vip=is_vip,
         team=r["team"],
         owner=r["owner"],
@@ -108,6 +138,7 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     detail = f"Call registered; classified {cat} -> {r['team']} ({priority})"
     if r["zone_id"]:
         detail += f" [zone-routed]"
+    detail += override_note
     if is_vip:
         detail += f" - VIP escalation ({vip_reason})"
     create_event(db, db_ticket.id, current_user, "CREATED", detail, new_status=db_ticket.status)

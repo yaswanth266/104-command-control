@@ -12,7 +12,9 @@ class TicketIn(BaseModel):
     error_code: Optional[str] = None
     impact: Optional[str] = None
     category: str
-    priority: str
+    priority: Optional[str] = None
+    impact_code: Optional[str] = None
+    urgency_code: Optional[str] = None
     subject: Optional[str] = None
     vip: Optional[bool] = False
     district_id: Optional[int] = None

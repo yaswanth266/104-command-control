@@ -2,7 +2,7 @@ import json
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.models.config import Config
-from app.core.config import TAT_DEFAULT, PRIORITY
+from app.core.config import TAT_DEFAULT
 
 SLA_DEFAULT = {
     "at_risk_minutes": 60, "at_risk_fraction": 0.2,
@@ -135,10 +135,12 @@ def update_tat_map(db: Session, patch: dict) -> dict:
     """Was previously read-only (get_tat_map in crud_ticket.py) with no way to
     write it from anywhere - this closes that gap."""
     from app.crud.crud_ticket import get_tat_map
+    from app.crud.crud_priority import get_priorities
+    valid_codes = {p.code for p in get_priorities(db, include_inactive=True)}
     tat = get_tat_map(db)
     for k, v in patch.items():
-        if k not in PRIORITY:
-            raise HTTPException(400, f"Unknown priority '{k}' (must be one of {list(PRIORITY)})")
+        if k not in valid_codes:
+            raise HTTPException(400, f"Unknown priority '{k}' (must be one of {sorted(valid_codes)})")
         try:
             v = int(v)
         except (TypeError, ValueError):
