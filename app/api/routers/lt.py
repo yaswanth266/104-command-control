@@ -115,6 +115,14 @@ def create_lt_ticket(
         photo_path=photo_path,
         problem=problem_text,
         category=cat,
+        # LT field reports are always Incidents; the (possibly several)
+        # selected reasons are still kept in reason_codes for backward
+        # compatibility, with the first one snapshotted as the ticket's
+        # single Sub-Category, consistent with the other intake paths.
+        ticket_type="INCIDENT",
+        subcategory_code=reasons[0].code,
+        category_label_snapshot=c.label,
+        subcategory_label_snapshot=reasons[0].label,
         priority=priority,
         team=route["team"],
         owner=route["owner"],

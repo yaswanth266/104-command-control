@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.core.config import INTAKE_API_KEY
 from app.crud.crud_ticket import get_tat_map, create_ticket
-from app.crud.crud_category import resolve_team
+from app.crud.crud_category import resolve_team, get_category
 from app.crud.crud_settings import detect_vip
+from app.crud.crud_ticket_type import get_ticket_type
 from app.crud.crud_event import create_event
 from app.services.notifications import notify_new_ticket
 from app.services.webhooks import dispatch_ticket_event
@@ -50,6 +51,14 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
     r = resolve_team(db, cat, mandal_id) or resolve_team(db, "OTHER", mandal_id)
     now = datetime.datetime.now()
 
+    # ticket_type is optional and best-effort here - an external caller that
+    # doesn't know our taxonomy still gets a ticket, just classified INCIDENT.
+    ticket_type = (body.get("ticket_type") or "INCIDENT").strip().upper()
+    tt = get_ticket_type(db, ticket_type)
+    if not tt or not tt.is_active:
+        ticket_type = "INCIDENT"
+    cat_row = get_category(db, cat) or get_category(db, "OTHER")
+
     detail = " | ".join([x for x in [body.get("detail"), body.get("context")] if x])
     problem = (body.get("subject") or "") + ((" - " + detail) if detail else "")
 
@@ -70,6 +79,8 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
         caller_name=body.get("raised_by_name"),
         problem=problem,
         category=cat,
+        ticket_type=ticket_type,
+        category_label_snapshot=cat_row.label if cat_row else None,
         priority=pr,
         vip=is_vip,
         team=r["team"],

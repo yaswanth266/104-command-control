@@ -29,6 +29,14 @@ class Ticket(Base):
     error_code = Column(String(96))
     impact = Column(String(191))
     category = Column(String(24), index=True)
+    # Taxonomy (enterprise framework alignment): ticket_type mirrors
+    # ccc_ticket_type.code, subcategory_code mirrors ccc_reason.code. Label
+    # snapshots follow the same rule as the geo snapshot above - they must
+    # NOT change if the master row is later relabeled/deactivated.
+    ticket_type = Column(String(24), server_default=text("'INCIDENT'"), index=True)
+    subcategory_code = Column(String(32), index=True)
+    category_label_snapshot = Column(String(191))
+    subcategory_label_snapshot = Column(String(191))
     priority = Column(String(4), index=True)
     team = Column(String(24), index=True)
     owner = Column(String(128))

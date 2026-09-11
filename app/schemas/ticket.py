@@ -19,6 +19,8 @@ class TicketIn(BaseModel):
     mandal_id: Optional[int] = None
     vehicle_id: Optional[int] = None
     machine_id: Optional[int] = None
+    ticket_type: Optional[str] = None
+    subcategory_code: Optional[str] = None
 
 class LogCallIn(BaseModel):
     caller_name: Optional[str] = None

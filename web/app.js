@@ -647,7 +647,8 @@ function renderNavTree() {
       { id: 'categories', label: 'Categories', icon: '🏷️' },
       { id: 'geo', label: 'Geography', icon: '🗺️' },
       { id: 'vehicles', label: 'Vehicles', icon: '🚐' },
-      { id: 'reasons', label: 'LT Reasons', icon: '⚠️' },
+      { id: 'tickettypes', label: 'Ticket Types', icon: '🏗️' },
+      { id: 'reasons', label: 'Sub-Categories', icon: '🗂️' },
       { id: 'machines', label: 'Machines', icon: '🔬' },
       { id: 'sla', label: 'SLA & TAT', icon: '⏱️' },
       { id: 'users', label: 'Users', icon: '👥' },
@@ -1319,7 +1320,11 @@ function viewNew() {
       '</div>' +
       '<div class="form-accordion-body' + (FORM_ACCORDION_OPEN.issue ? '' : ' hide') + '">' +
         '<div class="fld"><label>Nature of the problem *</label><textarea id="f_prob" rows="3" placeholder="What exactly is happening?"></textarea></div>' +
+        '<div class="grid2">' +
         '<div class="fld"><label>Issue category *</label><select id="f_cat" onchange="previewRoute()">' + cats + '</select></div>' +
+        '<div class="fld"><label>Ticket Type</label><select id="f_tt">' + Object.keys(META.ticket_types || {}).map(function (k) { return '<option value="' + k + '">' + esc(META.ticket_types[k].label) + '</option>'; }).join('') + '</select></div>' +
+        '</div>' +
+        '<div class="fld"><label>Sub-Category (optional)</label><select id="f_subcat"><option value="">— None —</option></select></div>' +
         '<div class="route" id="rpre" style="margin-top:10px"></div>' +
         '<div class="fld" style="margin-top:14px"><label style="display:flex;justify-content:space-between;align-items:center"><span>Attach Images / Evidence (optional)</span><span class="muted" style="font-size:12px;font-weight:normal">Multiple files supported (images, PDFs)</span></label>' +
         '<input type="file" id="f_photos" accept="image/*,.pdf,.doc,.docx" multiple onchange="previewNewTicketPhotos()" style="width:100%"><div id="f_photos_prev" class="photo-gallery"></div></div>' +
@@ -1359,6 +1364,16 @@ function logCallAgainstTicket(id) {
 function previewRoute() {
   var c = document.getElementById('f_cat').value, r = META.routing[c];
   document.getElementById('rpre').innerHTML = 'Routes to <b>' + esc(META.teams[r.team]) + '</b> &mdash; initial owner <b>' + esc(r.owner) + '</b>';
+  updateSubcategoryOptions();
+}
+function updateSubcategoryOptions() {
+  var sel = document.getElementById('f_subcat');
+  if (!sel) return;
+  var cat = document.getElementById('f_cat').value;
+  var subs = Object.keys(META.subcategories || {}).filter(function (code) { return META.subcategories[code].category_code === cat; });
+  sel.innerHTML = '<option value="">— None —</option>' + subs.map(function (code) {
+    return '<option value="' + code + '">' + esc(META.subcategories[code].label) + '</option>';
+  }).join('');
 }
 var NEW_DISTRICTS = [], VEH_DEBOUNCE = null, VEH_RESULTS = [];
 function loadNewCallGeo() {
@@ -1483,7 +1498,7 @@ function createT() {
     district_id: districtId ? +districtId : null, mandal_id: mandalId ? +mandalId : null, machine_id: machineId ? +machineId : null,
     location: g('f_loc'), caller_name: g('f_cname'),
     caller_phone: g('f_cph'), equipment: g('f_eq'), problem: g('f_prob'), error_code: g('f_err'), impact: g('f_imp'),
-    category: g('f_cat'), priority: 'P1'
+    category: g('f_cat'), priority: 'P1', ticket_type: g('f_tt') || undefined, subcategory_code: g('f_subcat') || undefined
   })
     .then(function (d) {
       window._NEW_TICKET_FILES = [];
@@ -1600,7 +1615,7 @@ function renderT(t, evs) {
     '<div style="display:flex;gap:9px;flex-wrap:wrap;margin-bottom:14px"><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span>' + tatPill(t).replace('<span ', '<span id="modalTat" ') +
     (t.escalated ? '<span class="pill p-crit">ESCALATED' + (t.escalation_count > 1 ? ' &times;' + esc(t.escalation_count) : '') + '</span>' : '') + '<span class="pill p-mut">TAT ' + esc(t.tat_mins) + ' min</span>' +
     (t.paused_minutes ? '<span class="pill p-mut">Paused ' + esc(t.paused_minutes) + 'm so far</span>' : '') + '</div>' +
-    '<div class="grid2"><div>' + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) +
+    '<div class="grid2"><div>' + row('Ticket Type', (META.ticket_types && META.ticket_types[t.ticket_type] && META.ticket_types[t.ticket_type].label) || t.ticket_type) + row('Sub-Category', t.subcategory_label_snapshot) + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) +
     row('Caller', (t.caller_name || '') + (t.caller_phone ? (' · ' + t.caller_phone) : '')) + row('Location', t.location) + '</div>' +
     '<div>' + row('Raised At', formatDT(t.created_at)) + row('Due (TAT)', formatDT(t.due_at)) + row('Acknowledged', formatDT(t.acknowledged_at)) + row('Resolved', formatDT(t.resolved_at)) +
     row('Assigned to', t.assignee) + row('Confirmed by', t.confirmed_by) + row('Closed', formatDT(t.closed_at)) + row('Owner', t.owner) +
@@ -2602,6 +2617,7 @@ function loadAdminSection(t) {
     });
   });
   else if (t === 'vehicles') api('GET', '/admin/vehicles').then(function (d) { ADMIN_VEHICLES = d; ADMIN_LOADED.vehicles = true; if (ADMIN_TAB === 'vehicles') render(); });
+  else if (t === 'tickettypes') loadAdminTicketTypes();
   else if (t === 'reasons') api('GET', '/admin/categories').then(function (c) {
     ADMIN_CATEGORIES = c;
     api('GET', '/admin/reasons').then(function (d) { ADMIN_REASONS = d; ADMIN_LOADED.reasons = true; if (ADMIN_TAB === 'reasons') render(); });
@@ -2615,7 +2631,8 @@ function viewAdmin() {
     categories: 'Categories & Department Owners',
     geo: 'Districts, Mandals & Zones',
     vehicles: 'MMU Vehicle Fleet Registry',
-    reasons: 'Lab Technician Reason Codes',
+    tickettypes: 'Ticket Types & Approval Rules',
+    reasons: 'Sub-Categories (Incident / Request Reasons)',
     machines: 'Diagnostic Machines & Equipment',
     sla: 'SLA Priorities & TAT Benchmarks',
     users: 'System Users & Role Assignments',
@@ -2631,6 +2648,7 @@ function viewAdmin() {
   else if (ADMIN_TAB === 'categories') body = viewAdminCategories();
   else if (ADMIN_TAB === 'geo') body = viewAdminGeo();
   else if (ADMIN_TAB === 'vehicles') body = viewAdminVehicles();
+  else if (ADMIN_TAB === 'tickettypes') body = viewAdminTicketTypes();
   else if (ADMIN_TAB === 'reasons') body = viewAdminReasons();
   else if (ADMIN_TAB === 'machines') body = viewAdminMachines();
   else if (ADMIN_TAB === 'sla') body = viewAdminSla();
@@ -2831,27 +2849,29 @@ function adminToggleVehicle(id, active) {
 }
 
 function viewAdminReasons() {
-  var ltCats = ADMIN_CATEGORIES.filter(function (c) { return c.visible_to_lt; });
-  var catOpts = ltCats.map(function (c) { return '<option value="' + c.code + '">' + esc(c.label) + '</option>'; }).join('');
+  var activeCats = ADMIN_CATEGORIES.filter(function (c) { return c.is_active; });
+  var catOpts = activeCats.map(function (c) { return '<option value="' + c.code + '">' + esc(c.label) + '</option>'; }).join('');
   var catLabel = function (code) { var c = ADMIN_CATEGORIES.find(function (x) { return x.code === code; }); return c ? c.label : code; };
+  var ttOpts = Object.keys(META.ticket_types || {}).map(function (k) { return '<option value="' + k + '">' + esc(META.ticket_types[k].label) + '</option>'; }).join('');
+  var ttLabel = function (code) { return (META.ticket_types && META.ticket_types[code] && META.ticket_types[code].label) || code; };
   var rows = ADMIN_REASONS.map(function (r) {
     return '<tr><td><b>' + esc(r.code) + '</b></td><td>' + esc(r.label) + '</td><td>' + esc(catLabel(r.category_code)) + '</td>' +
-      '<td><span class="pill ' + (r.role_visibility === 'LT_ONLY' ? 'p-crit' : 'p-mut') + '">' + esc(r.role_visibility || 'ALL') + '</span></td>' +
+      '<td>' + esc(ttLabel(r.ticket_type)) + '</td>' +
       '<td>' + (r.is_active ? '<span class="pill p-ok">Active</span>' : '<span class="pill p-mut">Inactive</span>') + '</td>' +
       '<td style="display:flex;gap:6px"><button class="btn o sm" onclick="adminRenameReason(\'' + r.code + '\')">Rename</button>' +
       '<button class="btn ' + (r.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleReason(\'' + r.code + '\',' + (!r.is_active) + ')">' + (r.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
-  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Reason Master (LT &amp; General)</h4>' +
-    '<div class="muted" style="margin-bottom:10px">Manage diagnostic reasons and fault classifications with role-based visibility.</div>' +
-    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Label</th><th>Issue type</th><th>Visibility</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
-    '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add reason</h4>' +
-    (ltCats.length ? ('<div class="grid3">' +
+  return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:10px;font-size:14px">Sub-Category Master</h4>' +
+    '<div class="muted" style="margin-bottom:10px">Fault/request classifications under each Category, selectable from Register Call, the LT field portal, and /intake. (Table name in the API stays "reasons" for backward compatibility with the LT portal.)</div>' +
+    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Label</th><th>Category</th><th>Ticket Type</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+    '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add sub-category</h4>' +
+    (activeCats.length ? ('<div class="grid3">' +
       '<div class="fld"><label>Code</label><input id="ar_code" placeholder="NO_POWER"></div>' +
-      '<div class="fld"><label>Label (shown to the LT)</label><input id="ar_label" placeholder="No power / won\'t switch on"></div>' +
-      '<div class="fld"><label>Issue type</label><select id="ar_category">' + catOpts + '</select></div>' +
-      '<div class="fld"><label>Visibility</label><select id="ar_vis"><option value="LT_ONLY">LT Only (Diagnostic Portal)</option><option value="ALL">All Roles</option></select></div>' +
-      '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateReason()">Add reason</button></div>' +
-      '</div>') : '<div class="muted">No categories are flagged "Visible to LT" yet - flag one on the Categories tab first.</div>') +
+      '<div class="fld"><label>Label</label><input id="ar_label" placeholder="No power / won\'t switch on"></div>' +
+      '<div class="fld"><label>Category</label><select id="ar_category">' + catOpts + '</select></div>' +
+      '<div class="fld"><label>Ticket Type</label><select id="ar_tt">' + ttOpts + '</select></div>' +
+      '<div class="fld" style="display:flex;align-items:flex-end"><button class="btn" onclick="adminCreateReason()">Add sub-category</button></div>' +
+      '</div>') : '<div class="muted">No active categories yet - add one on the Categories tab first.</div>') +
     '</div>';
 }
 function adminAddReason() {
@@ -2860,9 +2880,9 @@ function adminAddReason() {
 }
 function adminCreateReason() {
   var code = gv('ar_code'), label = gv('ar_label'), cat = document.getElementById('ar_category').value;
-  var vis = document.getElementById('ar_vis') ? document.getElementById('ar_vis').value : 'ALL';
+  var tt = document.getElementById('ar_tt') ? document.getElementById('ar_tt').value : 'INCIDENT';
   if (!code || !label) return toast('Code and label are required');
-  api('POST', '/admin/reasons', { code: code, category_code: cat, label: label, role_visibility: vis, visible_to_lt: vis === 'LT_ONLY' || vis === 'ALL' }).then(function () { toast('Reason added'); loadAdminSection('reasons'); })
+  api('POST', '/admin/reasons', { code: code, category_code: cat, label: label, ticket_type: tt }).then(function () { toast('Sub-category added'); loadAdminSection('reasons'); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Failed'); });
 }
 function adminRenameReason(code) {

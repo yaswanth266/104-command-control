@@ -4,6 +4,7 @@ from app.models.category import Category
 from app.models.team import Team
 from app.models.mandal import Mandal
 from app.models.zone import Zone
+from app.models.ticket_type import TicketType
 
 def get_categories(db: Session, include_inactive: bool = False):
     q = db.query(Category)
@@ -65,17 +66,25 @@ def _require_active_team(db: Session, team_code: str) -> str:
         raise HTTPException(400, f"'{team_code}' is not an active team")
     return team_code
 
+def _require_active_ticket_type(db: Session, ticket_type: str) -> str:
+    ticket_type = (ticket_type or "").strip().upper()
+    tt = db.query(TicketType).filter(TicketType.code == ticket_type).first()
+    if not tt or not tt.is_active:
+        raise HTTPException(400, f"'{ticket_type}' is not an active ticket type")
+    return ticket_type
+
 def create_category(db: Session, code: str, label: str, team_code: str, default_owner: str = None,
-                     route_by_zone: bool = False, visible_to_lt: bool = False) -> Category:
+                     route_by_zone: bool = False, visible_to_lt: bool = False, ticket_type: str = None) -> Category:
     code = (code or "").strip().upper()
     if not code or not (label or "").strip():
         raise HTTPException(400, "Category code and label are required")
     if db.query(Category).filter(Category.code == code).first():
         raise HTTPException(409, f"Category code '{code}' already exists")
     team_code = _require_active_team(db, team_code)
+    ticket_type = _require_active_ticket_type(db, ticket_type or "INCIDENT")
     c = Category(code=code, label=label.strip(), team_code=team_code,
                  default_owner=(default_owner or "").strip() or None, is_active=True,
-                 route_by_zone=bool(route_by_zone), visible_to_lt=bool(visible_to_lt))
+                 route_by_zone=bool(route_by_zone), visible_to_lt=bool(visible_to_lt), ticket_type=ticket_type)
     db.add(c)
     db.commit()
     db.refresh(c)
@@ -83,7 +92,7 @@ def create_category(db: Session, code: str, label: str, team_code: str, default_
 
 def update_category(db: Session, code: str, label: str = None, team_code: str = None,
                      default_owner: str = None, is_active: bool = None, route_by_zone: bool = None,
-                     visible_to_lt: bool = None) -> Category:
+                     visible_to_lt: bool = None, ticket_type: str = None) -> Category:
     c = get_category(db, code)
     if not c:
         raise HTTPException(404, "Category not found")
@@ -97,6 +106,8 @@ def update_category(db: Session, code: str, label: str = None, team_code: str = 
         c.route_by_zone = route_by_zone
     if visible_to_lt is not None:
         c.visible_to_lt = visible_to_lt
+    if ticket_type is not None:
+        c.ticket_type = _require_active_ticket_type(db, ticket_type)
     if default_owner is not None:
         c.default_owner = default_owner.strip() or None
     if is_active is not None:

@@ -18,5 +18,10 @@ class Category(Base):
     # false by default so existing internal-only categories (Application,
     # Network, ...) don't suddenly appear there.
     visible_to_lt = Column(Boolean, server_default=text("0"), nullable=False)
+    ticket_type = Column(String(24), server_default=text("'INCIDENT'"), nullable=False)
+    effective_from = Column(DateTime)
+    effective_to = Column(DateTime)
+    modified_by = Column(String(64))
+    modified_at = Column(DateTime)
     is_active = Column(Boolean, server_default=text("1"), nullable=False)
     created_at = Column(DateTime, default=func.now())

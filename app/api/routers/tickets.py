@@ -7,7 +7,9 @@ from app.schemas.ticket import TicketIn, ActionIn, LogCallIn
 from app.crud.crud_ticket import get_tickets, get_ticket, get_tat_map, create_ticket as insert_ticket
 from app.models.ticket import Ticket
 from app.crud.crud_event import get_events_by_ticket, create_event
-from app.crud.crud_category import get_category_map, resolve_team
+from app.crud.crud_category import get_category_map, resolve_team, get_category
+from app.crud.crud_reason import get_reason
+from app.crud.crud_ticket_type import get_ticket_type
 from app.crud.crud_team import get_team_map
 from app.crud.crud_settings import get_sla_config, detect_vip
 from app.crud.crud_attachment import create_attachment, get_attachments_by_ticket
@@ -57,6 +59,19 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     tat = get_tat_map(db).get(priority, 1440)
     now = datetime.datetime.now()
 
+    ticket_type = (b.ticket_type or "INCIDENT").strip().upper()
+    tt = get_ticket_type(db, ticket_type)
+    if not tt or not tt.is_active:
+        raise HTTPException(400, "Unknown or inactive ticket type")
+
+    subcat = None
+    if b.subcategory_code:
+        subcat = get_reason(db, b.subcategory_code.strip().upper())
+        if not subcat or not subcat.is_active or subcat.category_code != cat:
+            raise HTTPException(400, "That sub-category does not belong to the selected category")
+
+    cat_row = get_category(db, cat)
+
     db_ticket = insert_ticket(db, dict(
         source='CALL',
         mmu_vehicle=b.mmu_vehicle,
@@ -75,6 +90,10 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         error_code=b.error_code,
         impact=b.impact,
         category=cat,
+        ticket_type=ticket_type,
+        subcategory_code=subcat.code if subcat else None,
+        category_label_snapshot=cat_row.label if cat_row else None,
+        subcategory_label_snapshot=subcat.label if subcat else None,
         priority=priority,
         vip=is_vip,
         team=r["team"],

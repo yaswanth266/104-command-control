@@ -5,8 +5,9 @@ from app.api.deps import require_admin
 from app.schemas.admin import (TeamIn, TeamUpdate, CategoryIn, CategoryUpdate, SlaUpdate, UserIn, UserUpdate,
                                 DistrictIn, DistrictUpdate, ZoneIn, ZoneUpdate, MandalIn, MandalUpdate,
                                 VehicleIn, VehicleUpdate, ReasonIn, ReasonUpdate, MachineIn, MachineUpdate,
-                                DispatchUpdate, WebhookConfigUpdate)
-from app.crud import crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason, crud_machine
+                                DispatchUpdate, WebhookConfigUpdate, TicketTypeIn, TicketTypeUpdate)
+from app.crud import (crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason,
+                      crud_machine, crud_ticket_type)
 from app.crud.crud_admin_event import log_admin_event, get_admin_events
 from app.services import webhooks as webhook_service
 
@@ -17,7 +18,11 @@ def _team_out(t):
 
 def _category_out(c):
     return {"code": c.code, "label": c.label, "team_code": c.team_code, "default_owner": c.default_owner,
-            "is_active": c.is_active, "route_by_zone": c.route_by_zone, "visible_to_lt": c.visible_to_lt}
+            "is_active": c.is_active, "route_by_zone": c.route_by_zone, "visible_to_lt": c.visible_to_lt,
+            "ticket_type": c.ticket_type}
+
+def _ticket_type_out(t):
+    return {"code": t.code, "label": t.label, "requires_approval": t.requires_approval, "is_active": t.is_active}
 
 def _user_out(u):
     return {"id": u.id, "username": u.username, "name": u.name, "role": u.role, "phone": u.phone, "active": u.active,
@@ -26,7 +31,8 @@ def _user_out(u):
             "district_id": u.district_id, "mandal_id": u.mandal_id}
 
 def _reason_out(r):
-    return {"code": r.code, "category_code": r.category_code, "label": r.label, "is_active": r.is_active}
+    return {"code": r.code, "category_code": r.category_code, "label": r.label, "is_active": r.is_active,
+            "ticket_type": r.ticket_type}
 
 def _machine_out(m):
     return {"id": m.id, "name": m.name, "is_active": m.is_active}
@@ -69,7 +75,8 @@ def list_categories(db: Session = Depends(get_db), current_user: dict = Depends(
 
 @router.post("/categories")
 def create_category(b: CategoryIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
-    c = crud_category.create_category(db, b.code, b.label, b.team_code, b.default_owner, b.route_by_zone, b.visible_to_lt)
+    c = crud_category.create_category(db, b.code, b.label, b.team_code, b.default_owner, b.route_by_zone,
+                                       b.visible_to_lt, b.ticket_type)
     log_admin_event(db, current_user, "CATEGORY_CREATED", "category", c.code, f"label={c.label}, team={c.team_code}")
     webhook_service.dispatch_category_event(db, "category.created", c, current_user["username"])
     return _category_out(c)
@@ -78,14 +85,14 @@ def create_category(b: CategoryIn, db: Session = Depends(get_db), current_user: 
 def update_category(code: str, b: CategoryUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
     c = crud_category.update_category(db, code.upper(), label=b.label, team_code=b.team_code,
                                        default_owner=b.default_owner, is_active=b.is_active, route_by_zone=b.route_by_zone,
-                                       visible_to_lt=b.visible_to_lt)
+                                       visible_to_lt=b.visible_to_lt, ticket_type=b.ticket_type)
     log_admin_event(db, current_user, "CATEGORY_UPDATED", "category", c.code,
                      f"label={c.label}, team={c.team_code}, is_active={c.is_active}, "
-                     f"route_by_zone={c.route_by_zone}, visible_to_lt={c.visible_to_lt}")
+                     f"route_by_zone={c.route_by_zone}, visible_to_lt={c.visible_to_lt}, ticket_type={c.ticket_type}")
     webhook_service.dispatch_category_event(db, "category.updated", c, current_user["username"])
     return _category_out(c)
 
-# ---------- reasons ----------
+# ---------- reasons (Sub-Category master) ----------
 
 @router.get("/reasons")
 def list_reasons(category: str = None, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
@@ -93,15 +100,34 @@ def list_reasons(category: str = None, db: Session = Depends(get_db), current_us
 
 @router.post("/reasons")
 def create_reason(b: ReasonIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
-    r = crud_reason.create_reason(db, b.code, b.category_code, b.label)
+    r = crud_reason.create_reason(db, b.code, b.category_code, b.label, b.ticket_type)
     log_admin_event(db, current_user, "REASON_CREATED", "reason", r.code, f"label={r.label}, category={r.category_code}")
     return _reason_out(r)
 
 @router.put("/reasons/{code}")
 def update_reason(code: str, b: ReasonUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
-    r = crud_reason.update_reason(db, code.upper(), label=b.label, is_active=b.is_active)
+    r = crud_reason.update_reason(db, code.upper(), label=b.label, is_active=b.is_active, ticket_type=b.ticket_type)
     log_admin_event(db, current_user, "REASON_UPDATED", "reason", r.code, f"label={r.label}, is_active={r.is_active}")
     return _reason_out(r)
+
+# ---------- ticket types ----------
+
+@router.get("/ticket-types")
+def list_ticket_types(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_ticket_type_out(t) for t in crud_ticket_type.get_ticket_types(db, include_inactive=True)]
+
+@router.post("/ticket-types")
+def create_ticket_type(b: TicketTypeIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    t = crud_ticket_type.create_ticket_type(db, b.code, b.label, b.requires_approval)
+    log_admin_event(db, current_user, "TICKET_TYPE_CREATED", "ticket_type", t.code, f"label={t.label}")
+    return _ticket_type_out(t)
+
+@router.put("/ticket-types/{code}")
+def update_ticket_type(code: str, b: TicketTypeUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    t = crud_ticket_type.update_ticket_type(db, code.upper(), label=b.label, requires_approval=b.requires_approval,
+                                             is_active=b.is_active)
+    log_admin_event(db, current_user, "TICKET_TYPE_UPDATED", "ticket_type", t.code, f"label={t.label}, is_active={t.is_active}")
+    return _ticket_type_out(t)
 
 # ---------- machines ----------
 

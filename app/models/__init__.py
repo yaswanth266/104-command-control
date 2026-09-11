@@ -13,7 +13,8 @@ from app.models.vehicle import Vehicle
 from app.models.reason import Reason
 from app.models.machine import Machine
 from app.models.attachment import Attachment
+from app.models.ticket_type import TicketType
 from app.db.database import Base
 
 __all__ = ["User", "Ticket", "Event", "Config", "Notification", "Team", "Category", "AdminEvent",
-           "District", "Mandal", "Zone", "Vehicle", "Reason", "Machine", "Attachment", "Base"]
+           "District", "Mandal", "Zone", "Vehicle", "Reason", "Machine", "Attachment", "TicketType", "Base"]

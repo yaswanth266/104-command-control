@@ -16,6 +16,7 @@ class CategoryIn(BaseModel):
     default_owner: Optional[str] = None
     route_by_zone: Optional[bool] = False
     visible_to_lt: Optional[bool] = False
+    ticket_type: Optional[str] = None
 
 class CategoryUpdate(BaseModel):
     label: Optional[str] = None
@@ -24,14 +25,27 @@ class CategoryUpdate(BaseModel):
     is_active: Optional[bool] = None
     route_by_zone: Optional[bool] = None
     visible_to_lt: Optional[bool] = None
+    ticket_type: Optional[str] = None
 
 class ReasonIn(BaseModel):
     code: str
     category_code: str
     label: str
+    ticket_type: Optional[str] = None
 
 class ReasonUpdate(BaseModel):
     label: Optional[str] = None
+    is_active: Optional[bool] = None
+    ticket_type: Optional[str] = None
+
+class TicketTypeIn(BaseModel):
+    code: str
+    label: str
+    requires_approval: Optional[bool] = False
+
+class TicketTypeUpdate(BaseModel):
+    label: Optional[str] = None
+    requires_approval: Optional[bool] = None
     is_active: Optional[bool] = None
 
 class MachineIn(BaseModel):

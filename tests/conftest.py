@@ -31,7 +31,7 @@ _ensure_test_db()
 
 from app.db.database import Base, engine, SessionLocal  # noqa: E402
 from app.models import (User, Ticket, Event, Notification, Team, Category,  # noqa: E402
-                         District, Mandal, Zone, Vehicle, Reason, Machine)
+                         District, Mandal, Zone, Vehicle, Reason, Machine, TicketType)
 from app.core.security import hash_pw, mktoken  # noqa: E402
 
 ROLES = ["CC_MANAGER", "CALL_TAKER", "SERVICE", "APPLICATION", "QUALITY", "TECHNICAL", "NETWORK", "FIELD_OPS", "FLEET"]
@@ -56,6 +56,11 @@ _SEED_TEAMS = [
     ("NETWORK", "Network Team"), ("FIELD_OPS", "Field Operations Team"),
     ("FLEET", "Fleet Team"), ("CC_MANAGER", "CC Manager / Technical Team"),
 ]
+_SEED_TICKET_TYPES = [
+    ("INCIDENT", "Incident", False),
+    ("SERVICE_REQUEST", "Service Request", False),
+    ("CHANGE_REQUEST", "Change Request", True),
+]
 _SEED_CATEGORIES = [
     ("MACHINE", "Machine / Instrument Breakdown", "SERVICE", "Service Engineer"),
     ("QC", "QC Failure / Quality Issue", "QUALITY", "Quality Person / Application Person"),
@@ -77,6 +82,8 @@ def _schema():
     for role in ROLES:
         db.add(User(username=role.lower(), name=role.title().replace("_", " "), role=role,
                      pw=hash_pw("testpass123"), active=True))
+    for code, label, requires_approval in _SEED_TICKET_TYPES:
+        db.add(TicketType(code=code, label=label, requires_approval=requires_approval, is_active=True))
     for code, name in _SEED_TEAMS:
         db.add(Team(code=code, name=name, is_active=True))
     for code, label, team_code, owner in _SEED_CATEGORIES:
