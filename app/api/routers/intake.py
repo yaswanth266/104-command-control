@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.core.config import INTAKE_API_KEY
-from app.crud.crud_ticket import get_tat_map, create_ticket
+from app.crud.crud_ticket import create_ticket
 from app.crud.crud_category import resolve_team, get_category
 from app.crud.crud_settings import detect_vip
 from app.crud.crud_ticket_type import get_ticket_type
 from app.crud.crud_event import create_event
 from app.services.notifications import notify_new_ticket
 from app.services.webhooks import dispatch_ticket_event
+from app.services.sla_engine import resolve_ticket_sla
 import datetime
 
 router = APIRouter(prefix="/intake", tags=["intake"])
@@ -64,7 +65,7 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
 
     is_vip, vip_reason = detect_vip(db, bool(body.get("vip")), problem, body.get("impact"))
     pr = "P1" if is_vip else pr
-    tat = get_tat_map(db).get(pr, 1440)
+    sla = resolve_ticket_sla(db, ticket_type, cat, None, pr, now=now)
 
     # This endpoint serves the 104 field application; source is always GOV_EHR
     # regardless of what the caller sends, so downstream reporting can trust it.
@@ -82,12 +83,15 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
         ticket_type=ticket_type,
         category_label_snapshot=cat_row.label if cat_row else None,
         priority=pr,
+        original_priority=pr,
         vip=is_vip,
         team=r["team"],
         owner=r["owner"],
         status='ASSIGNED',
-        tat_mins=tat,
-        due_at=now + datetime.timedelta(minutes=tat),
+        tat_mins=sla["tat_mins"],
+        due_at=sla["due_at"],
+        sla_policy_code=sla["policy_code"],
+        response_due_at=sla["response_due_at"],
         created_by=(body.get("escalated_by") or body.get("raised_by_name") or "GOV_EHR")[:64],
         assigned_at=now
     ))

@@ -46,6 +46,15 @@ class Ticket(Base):
     impact_code = Column(String(16))
     urgency_code = Column(String(16))
     original_priority = Column(String(4))
+    # SLA Policy master (phase 3): which policy resolved this ticket's TAT at
+    # creation/repriority time, plus a separately-tracked Response SLA
+    # (response_due_at) alongside the existing Resolution SLA (due_at).
+    # sla_status is the spec's WITHIN/APPROACHING/BREACHED/RESOLVED_WITHIN/
+    # RESOLVED_AFTER - computed in app/services/formatting.py's enrich(),
+    # not stored; formatting.sla_tier() remains the pill's source of truth.
+    sla_policy_code = Column(String(48))
+    response_due_at = Column(DateTime)
+    response_breached = Column(Boolean, server_default=text("0"))
     team = Column(String(24), index=True)
     owner = Column(String(128))
     assignee = Column(String(64))

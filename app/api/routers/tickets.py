@@ -4,7 +4,8 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.api.deps import get_current_user
 from app.schemas.ticket import TicketIn, ActionIn, LogCallIn
-from app.crud.crud_ticket import get_tickets, get_ticket, get_tat_map, create_ticket as insert_ticket
+from app.crud.crud_ticket import get_tickets, get_ticket, create_ticket as insert_ticket
+from app.services.sla_engine import resolve_ticket_sla
 from app.models.ticket import Ticket
 from app.crud.crud_event import get_events_by_ticket, create_event
 from app.crud.crud_category import get_category_map, resolve_team, get_category
@@ -83,7 +84,6 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
 
     is_vip, vip_reason = detect_vip(db, b.vip, b.problem, b.impact)
     priority = "P1" if is_vip else requested_priority
-    tat = get_tat_map(db).get(priority, 1440)
     now = datetime.datetime.now()
 
     ticket_type = (b.ticket_type or "INCIDENT").strip().upper()
@@ -98,6 +98,8 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
             raise HTTPException(400, "That sub-category does not belong to the selected category")
 
     cat_row = get_category(db, cat)
+
+    sla = resolve_ticket_sla(db, ticket_type, cat, subcat.code if subcat else None, priority, now=now)
 
     db_ticket = insert_ticket(db, dict(
         source='CALL',
@@ -129,8 +131,10 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
         team=r["team"],
         owner=r["owner"],
         status='ASSIGNED',
-        tat_mins=tat,
-        due_at=now + datetime.timedelta(minutes=tat),
+        tat_mins=sla["tat_mins"],
+        due_at=sla["due_at"],
+        sla_policy_code=sla["policy_code"],
+        response_due_at=sla["response_due_at"],
         created_by=current_user["username"],
         assigned_at=now
     ))
@@ -146,7 +150,7 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     dispatch_ticket_event(db, "ticket.created", db_ticket, current_user["username"])
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "owner": r["owner"],
-            "tat_mins": tat, "priority": priority, "vip": is_vip}
+            "tat_mins": sla["tat_mins"], "priority": priority, "vip": is_vip}
 
 @collection_router.get("")
 def list_tickets(status: str = "", team: str = "", scope: str = "", q_: str = "",

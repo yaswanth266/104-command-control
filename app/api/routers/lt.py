@@ -7,7 +7,8 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.api.deps import get_current_user
 from app.models.ticket import Ticket
-from app.crud.crud_ticket import create_ticket as insert_ticket, get_tat_map
+from app.crud.crud_ticket import create_ticket as insert_ticket
+from app.services.sla_engine import resolve_ticket_sla
 from app.crud.crud_event import create_event
 from app.crud.crud_attachment import create_attachment
 from app.crud.crud_category import resolve_team, get_category, get_category_map
@@ -98,8 +99,8 @@ def create_lt_ticket(
 
     vehicle = get_vehicle(db, lt_user.vehicle_id) if lt_user.vehicle_id else None
     district = get_district(db, lt_user.district_id)
-    tat = get_tat_map(db).get(priority, 1440)
     now = datetime.datetime.now()
+    sla = resolve_ticket_sla(db, "INCIDENT", cat, reasons[0].code, priority, now=now)
     problem_text = (problem or "").strip() or "; ".join(r.label for r in reasons)
 
     db_ticket = insert_ticket(db, dict(
@@ -124,11 +125,14 @@ def create_lt_ticket(
         category_label_snapshot=c.label,
         subcategory_label_snapshot=reasons[0].label,
         priority=priority,
+        original_priority=priority,
         team=route["team"],
         owner=route["owner"],
         status='ASSIGNED',
-        tat_mins=tat,
-        due_at=now + datetime.timedelta(minutes=tat),
+        tat_mins=sla["tat_mins"],
+        due_at=sla["due_at"],
+        sla_policy_code=sla["policy_code"],
+        response_due_at=sla["response_due_at"],
         created_by=current_user["username"],
         assigned_at=now,
     ))

@@ -1,22 +1,16 @@
-import json
 import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, and_, desc, text
 from sqlalchemy.exc import IntegrityError
 from app.models.ticket import Ticket
-from app.models.config import Config
-from app.core.config import TAT_DEFAULT
 from app.crud.crud_settings import get_sla_config
 
 def get_tat_map(db: Session):
-    config = db.query(Config).filter(Config.k == 'tat').first()
-    if config:
-        try:
-            return json.loads(config.v)
-        except Exception:
-            return dict(TAT_DEFAULT)
-    return dict(TAT_DEFAULT)
+    """{priority_code: minutes} - now backed by ccc_sla_policy's baseline
+    rows (see app/crud/crud_sla_policy.py), not ccc_config's old 'tat' key."""
+    from app.crud.crud_sla_policy import get_baseline_tat_map
+    return get_baseline_tat_map(db)
 
 def get_next_ticket_no(db: Session) -> str:
     d = datetime.datetime.now().strftime("%Y%m%d")

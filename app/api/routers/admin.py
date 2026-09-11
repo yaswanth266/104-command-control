@@ -6,9 +6,12 @@ from app.schemas.admin import (TeamIn, TeamUpdate, CategoryIn, CategoryUpdate, S
                                 DistrictIn, DistrictUpdate, ZoneIn, ZoneUpdate, MandalIn, MandalUpdate,
                                 VehicleIn, VehicleUpdate, ReasonIn, ReasonUpdate, MachineIn, MachineUpdate,
                                 DispatchUpdate, WebhookConfigUpdate, TicketTypeIn, TicketTypeUpdate,
-                                PriorityIn, PriorityUpdate, PriorityMatrixCellIn)
+                                PriorityIn, PriorityUpdate, PriorityMatrixCellIn,
+                                SlaPolicyIn, SlaPolicyUpdate, BusinessCalendarIn, BusinessCalendarUpdate,
+                                CalendarHolidayIn)
 from app.crud import (crud_team, crud_category, crud_settings, crud_user, crud_geo, crud_vehicle, crud_reason,
-                      crud_machine, crud_ticket_type, crud_priority, crud_priority_matrix)
+                      crud_machine, crud_ticket_type, crud_priority, crud_priority_matrix,
+                      crud_sla_policy, crud_calendar)
 from app.crud.crud_admin_event import log_admin_event, get_admin_events
 from app.services import webhooks as webhook_service
 
@@ -293,6 +296,81 @@ def update_dispatch(b: DispatchUpdate, db: Session = Depends(get_db), current_us
     out = crud_settings.update_dispatch_config(db, {"local_team_lead_enabled": b.local_team_lead_enabled})
     log_admin_event(db, current_user, "DISPATCH_SETTINGS_UPDATED", "settings", "dispatch", str(out))
     return out
+
+# ---------- SLA policies ----------
+
+def _sla_policy_out(p):
+    return {"code": p.code, "priority_code": p.priority_code, "subcategory_code": p.subcategory_code,
+            "category_code": p.category_code, "ticket_type": p.ticket_type,
+            "response_mins": p.response_mins, "resolution_mins": p.resolution_mins,
+            "calendar_code": p.calendar_code, "is_active": p.is_active}
+
+@router.get("/sla-policies")
+def list_sla_policies(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_sla_policy_out(p) for p in crud_sla_policy.get_policies(db, include_inactive=True)]
+
+@router.post("/sla-policies")
+def create_sla_policy(b: SlaPolicyIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    p = crud_sla_policy.create_policy(db, b.code, b.priority_code, b.resolution_mins, b.calendar_code,
+                                       b.subcategory_code, b.category_code, b.ticket_type, b.response_mins)
+    log_admin_event(db, current_user, "SLA_POLICY_CREATED", "sla_policy", p.code,
+                     f"priority={p.priority_code}, resolution_mins={p.resolution_mins}")
+    return _sla_policy_out(p)
+
+@router.put("/sla-policies/{code}")
+def update_sla_policy(code: str, b: SlaPolicyUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    p = crud_sla_policy.update_policy(db, code.upper(), resolution_mins=b.resolution_mins,
+                                       response_mins=b.response_mins, calendar_code=b.calendar_code,
+                                       is_active=b.is_active)
+    log_admin_event(db, current_user, "SLA_POLICY_UPDATED", "sla_policy", p.code,
+                     f"resolution_mins={p.resolution_mins}, is_active={p.is_active}")
+    return _sla_policy_out(p)
+
+# ---------- business calendars ----------
+
+def _calendar_out(c):
+    return {"code": c.code, "name": c.name, "is_24x7": c.is_24x7, "timezone": c.timezone,
+            "working_hours": c.working_hours, "is_active": c.is_active}
+
+def _holiday_out(h):
+    return {"id": h.id, "calendar_code": h.calendar_code, "holiday_date": h.holiday_date.strftime("%Y-%m-%d"),
+            "label": h.label}
+
+@router.get("/calendars")
+def list_calendars(db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_calendar_out(c) for c in crud_calendar.get_calendars(db, include_inactive=True)]
+
+@router.post("/calendars")
+def create_calendar(b: BusinessCalendarIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    c = crud_calendar.create_calendar(db, b.code, b.name, b.is_24x7, b.timezone, b.working_hours)
+    log_admin_event(db, current_user, "CALENDAR_CREATED", "calendar", c.code, f"name={c.name}, is_24x7={c.is_24x7}")
+    return _calendar_out(c)
+
+@router.put("/calendars/{code}")
+def update_calendar(code: str, b: BusinessCalendarUpdate, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    c = crud_calendar.update_calendar(db, code.upper(), name=b.name, is_24x7=b.is_24x7, timezone=b.timezone,
+                                       working_hours=b.working_hours, is_active=b.is_active)
+    log_admin_event(db, current_user, "CALENDAR_UPDATED", "calendar", c.code, f"is_24x7={c.is_24x7}, is_active={c.is_active}")
+    return _calendar_out(c)
+
+@router.get("/calendars/{code}/holidays")
+def list_calendar_holidays(code: str, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    return [_holiday_out(h) for h in crud_calendar.get_holidays(db, code)]
+
+@router.post("/calendars/{code}/holidays")
+def add_calendar_holiday(code: str, b: CalendarHolidayIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    h = crud_calendar.add_holiday(db, code, b.holiday_date, b.label)
+    log_admin_event(db, current_user, "CALENDAR_HOLIDAY_ADDED", "calendar", code, f"date={h.holiday_date}, label={h.label}")
+    return _holiday_out(h)
+
+@router.delete("/calendars/holidays/{holiday_id}")
+def remove_calendar_holiday(holiday_id: int, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
+    # Unlike other master data (soft-toggle only), holidays are pure schedule
+    # metadata with no ticket-snapshot dependency, so a hard delete here is
+    # safe - it doesn't touch anything append-only.
+    crud_calendar.delete_holiday(db, holiday_id)
+    log_admin_event(db, current_user, "CALENDAR_HOLIDAY_REMOVED", "calendar", str(holiday_id), "")
+    return {"ok": True}
 
 # ---------- users ----------
 # (GET /users already exists for the roster listing - these add write access)

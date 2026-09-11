@@ -650,6 +650,8 @@ function renderNavTree() {
       { id: 'tickettypes', label: 'Ticket Types', icon: '🏗️' },
       { id: 'reasons', label: 'Sub-Categories', icon: '🗂️' },
       { id: 'priorities', label: 'Priorities & Matrix', icon: '🎯' },
+      { id: 'slapolicies', label: 'SLA Policies', icon: '📐' },
+      { id: 'calendars', label: 'Business Calendars', icon: '📅' },
       { id: 'machines', label: 'Machines', icon: '🔬' },
       { id: 'sla', label: 'SLA & TAT', icon: '⏱️' },
       { id: 'users', label: 'Users', icon: '👥' },
@@ -1654,7 +1656,10 @@ function renderT(t, evs) {
     (t.paused_minutes ? '<span class="pill p-mut">Paused ' + esc(t.paused_minutes) + 'm so far</span>' : '') + '</div>' +
     '<div class="grid2"><div>' + row('Ticket Type', (META.ticket_types && META.ticket_types[t.ticket_type] && META.ticket_types[t.ticket_type].label) || t.ticket_type) + row('Sub-Category', t.subcategory_label_snapshot) + row('Problem', t.problem) + row('Equipment', t.equipment) + row('Error code', t.error_code) + row('Impact', t.impact) + row('Impact Level', t.impact_code) + row('Urgency Level', t.urgency_code) +
     row('Caller', (t.caller_name || '') + (t.caller_phone ? (' · ' + t.caller_phone) : '')) + row('Location', t.location) + '</div>' +
-    '<div>' + row('Raised At', formatDT(t.created_at)) + row('Due (TAT)', formatDT(t.due_at)) + row('Acknowledged', formatDT(t.acknowledged_at)) + row('Resolved', formatDT(t.resolved_at)) +
+    '<div>' + row('Raised At', formatDT(t.created_at)) +
+    row('Response Due (SLA)', t.response_due_at ? (formatDT(t.response_due_at) + (t.response_breached ? ' — BREACHED' : '')) : '') +
+    row('Resolution Due (SLA)', formatDT(t.due_at)) + row('SLA Policy', t.sla_policy_code) +
+    row('Acknowledged', formatDT(t.acknowledged_at)) + row('Resolved', formatDT(t.resolved_at)) +
     row('Assigned to', t.assignee) + row('Confirmed by', t.confirmed_by) + row('Closed', formatDT(t.closed_at)) + row('Owner', t.owner) +
     row('Escalation reason', t.escalation_note) + '</div></div>' +
     form + reroute + assignBlock +
@@ -2656,6 +2661,8 @@ function loadAdminSection(t) {
   else if (t === 'vehicles') api('GET', '/admin/vehicles').then(function (d) { ADMIN_VEHICLES = d; ADMIN_LOADED.vehicles = true; if (ADMIN_TAB === 'vehicles') render(); });
   else if (t === 'tickettypes') loadAdminTicketTypes();
   else if (t === 'priorities') loadAdminPriorities();
+  else if (t === 'slapolicies') loadAdminSlaPolicies();
+  else if (t === 'calendars') loadAdminCalendars();
   else if (t === 'reasons') api('GET', '/admin/categories').then(function (c) {
     ADMIN_CATEGORIES = c;
     api('GET', '/admin/reasons').then(function (d) { ADMIN_REASONS = d; ADMIN_LOADED.reasons = true; if (ADMIN_TAB === 'reasons') render(); });
@@ -2672,6 +2679,8 @@ function viewAdmin() {
     tickettypes: 'Ticket Types & Approval Rules',
     reasons: 'Sub-Categories (Incident / Request Reasons)',
     priorities: 'Priorities & Impact/Urgency Matrix',
+    slapolicies: 'SLA Policies (Response & Resolution Targets)',
+    calendars: 'Business Calendars & Holidays',
     machines: 'Diagnostic Machines & Equipment',
     sla: 'SLA Priorities & TAT Benchmarks',
     users: 'System Users & Role Assignments',
@@ -2689,6 +2698,8 @@ function viewAdmin() {
   else if (ADMIN_TAB === 'vehicles') body = viewAdminVehicles();
   else if (ADMIN_TAB === 'tickettypes') body = viewAdminTicketTypes();
   else if (ADMIN_TAB === 'priorities') body = viewAdminPriorities();
+  else if (ADMIN_TAB === 'slapolicies') body = viewAdminSlaPolicies();
+  else if (ADMIN_TAB === 'calendars') body = viewAdminCalendars();
   else if (ADMIN_TAB === 'reasons') body = viewAdminReasons();
   else if (ADMIN_TAB === 'machines') body = viewAdminMachines();
   else if (ADMIN_TAB === 'sla') body = viewAdminSla();

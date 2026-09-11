@@ -132,12 +132,12 @@ def update_dispatch_config(db: Session, patch: dict) -> dict:
     return cfg
 
 def update_tat_map(db: Session, patch: dict) -> dict:
-    """Was previously read-only (get_tat_map in crud_ticket.py) with no way to
-    write it from anywhere - this closes that gap."""
-    from app.crud.crud_ticket import get_tat_map
+    """Writes the baseline ccc_sla_policy rows (see app/crud/crud_sla_policy.py)
+    - the old ccc_config['tat'] JSON key this used to write is retired as of
+    phase 3, kept only as inert leftover data on any deployment that had it."""
     from app.crud.crud_priority import get_priorities
+    from app.crud.crud_sla_policy import upsert_baseline_resolution_mins, get_baseline_tat_map
     valid_codes = {p.code for p in get_priorities(db, include_inactive=True)}
-    tat = get_tat_map(db)
     for k, v in patch.items():
         if k not in valid_codes:
             raise HTTPException(400, f"Unknown priority '{k}' (must be one of {sorted(valid_codes)})")
@@ -147,6 +147,5 @@ def update_tat_map(db: Session, patch: dict) -> dict:
             raise HTTPException(400, f"TAT for '{k}' must be a whole number of minutes")
         if v <= 0:
             raise HTTPException(400, f"TAT for '{k}' must be a positive number of minutes")
-        tat[k] = v
-    _set_config_row(db, "tat", tat)
-    return tat
+        upsert_baseline_resolution_mins(db, k, v)
+    return get_baseline_tat_map(db)

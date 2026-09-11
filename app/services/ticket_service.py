@@ -4,12 +4,12 @@ from sqlalchemy.orm import Session
 from app.models.ticket import Ticket
 from app.crud.crud_event import create_event
 from app.crud.crud_priority import get_priority
-from app.crud.crud_ticket import get_tat_map
 from app.crud.crud_team import get_team_map, get_active_team_map
 from app.crud.crud_settings import get_sla_config, get_dispatch_config
 from app.schemas.ticket import ActionIn
 from app.services.notifications import notify_escalated, notify_assigned, notify_not_resolved
 from app.services.webhooks import dispatch_ticket_event
+from app.services.sla_engine import resolve_ticket_sla
 
 # Centralized workflow contract: the ticket statuses each lifecycle action may
 # be applied from, and the status it lands on. This is the single place that
@@ -82,13 +82,23 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
 
     now = datetime.datetime.now()
 
+    # Response SLA (phase 3): only ever measured the FIRST time a ticket gets
+    # a response, same idempotency rule as first_response_at itself below -
+    # a later acknowledge/start must not overwrite whether the original
+    # response was on time.
+    def _response_breached_once():
+        if ticket.first_response_at or not ticket.response_due_at:
+            return ticket.response_breached
+        return now > ticket.response_due_at
+
     if act == "acknowledge":
         if not own:
             raise HTTPException(403, "Only the assigned team may acknowledge")
         _require_transition(ticket, act)
         setf("ACKNOWLEDGED", f"Acknowledged by {user['name']} ({get_team_map(db).get(ticket.team, ticket.team)})",
              "ticket.status_changed",
-             status=TARGET_STATUS[act], acknowledged_at=now, first_response_at=ticket.first_response_at or now, assignee=user['username'])
+             status=TARGET_STATUS[act], acknowledged_at=now, first_response_at=ticket.first_response_at or now,
+             response_breached=_response_breached_once(), assignee=user['username'])
 
     elif act == "start":
         if not own:
@@ -96,7 +106,8 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         _require_transition(ticket, act)
         setf("IN_PROGRESS", action_in.note or "Investigation started",
              "ticket.status_changed",
-             status=TARGET_STATUS[act], first_response_at=ticket.first_response_at or now, assignee=ticket.assignee or user['username'])
+             status=TARGET_STATUS[act], first_response_at=ticket.first_response_at or now,
+             response_breached=_response_breached_once(), assignee=ticket.assignee or user['username'])
 
     elif act == "update":
         if not own:
@@ -236,15 +247,16 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
         pr = get_priority(db, (action_in.priority or "").strip().upper())
         if not pr or not pr.is_active:
             raise HTTPException(400, "Unknown or inactive priority")
-        nt_mins = get_tat_map(db).get(pr.code, 1440)
+        sla = resolve_ticket_sla(db, ticket.ticket_type, ticket.category, ticket.subcategory_code, pr.code,
+                                  now=ticket.created_at)
         # Preserve any SLA pause already credited (see setf) - otherwise a
         # priority change would silently wipe out paused time from an earlier
         # PENDING period. original_priority is a creation-time snapshot and is
         # deliberately left untouched here.
-        new_due = ticket.created_at + datetime.timedelta(minutes=nt_mins + (ticket.paused_minutes or 0))
-        setf("PRIORITY", f"Priority set to {pr.code} (TAT {nt_mins} min)",
+        new_due = sla["due_at"] + datetime.timedelta(minutes=(ticket.paused_minutes or 0))
+        setf("PRIORITY", f"Priority set to {pr.code} (TAT {sla['tat_mins']} min)",
              "ticket.note_added",
-             priority=pr.code, tat_mins=nt_mins, due_at=new_due)
+             priority=pr.code, tat_mins=sla["tat_mins"], due_at=new_due, sla_policy_code=sla["policy_code"])
 
     elif act == "not_resolved":
         if role not in ("CC_MANAGER", "CALL_TAKER") and not is_originating_lt and not own:

@@ -31,7 +31,8 @@ _ensure_test_db()
 
 from app.db.database import Base, engine, SessionLocal  # noqa: E402
 from app.models import (User, Ticket, Event, Notification, Team, Category,  # noqa: E402
-                         District, Mandal, Zone, Vehicle, Reason, Machine, TicketType, Priority, PriorityMatrix)
+                         District, Mandal, Zone, Vehicle, Reason, Machine, TicketType, Priority, PriorityMatrix,
+                         BusinessCalendar, SlaPolicy)
 from app.core.security import hash_pw, mktoken  # noqa: E402
 
 ROLES = ["CC_MANAGER", "CALL_TAKER", "SERVICE", "APPLICATION", "QUALITY", "TECHNICAL", "NETWORK", "FIELD_OPS", "FLEET"]
@@ -73,6 +74,11 @@ _SEED_PRIORITY_MATRIX = [
     ("MEDIUM", "HIGH", "P2"), ("MEDIUM", "MEDIUM", "P3"), ("MEDIUM", "LOW", "P3"),
     ("LOW", "HIGH", "P3"), ("LOW", "MEDIUM", "P4"), ("LOW", "LOW", "P4"),
 ]
+# Mirrors alembic/versions/d8f1b3a5c7e9's seed data - the baseline (scope-less)
+# SLA Policy row per priority that get_tat_map()/PUT /admin/sla's `tat` patch
+# read and write, under the seeded 24x7 calendar (so due_at math stays plain
+# wall-clock, exactly like every test here already assumes).
+_SEED_SLA_BASELINE = {"P1": 240, "P2": 480, "P3": 1440, "P4": 4320}
 _SEED_CATEGORIES = [
     ("MACHINE", "Machine / Instrument Breakdown", "SERVICE", "Service Engineer"),
     ("QC", "QC Failure / Quality Issue", "QUALITY", "Quality Person / Application Person"),
@@ -101,6 +107,10 @@ def _schema():
                          display_order=display_order, is_active=True))
     for impact_code, urgency_code, priority_code in _SEED_PRIORITY_MATRIX:
         db.add(PriorityMatrix(impact_code=impact_code, urgency_code=urgency_code, priority_code=priority_code))
+    db.add(BusinessCalendar(code="DEFAULT-24X7", name="Default (24x7, no holidays)", is_24x7=True, is_active=True))
+    for priority_code, mins in _SEED_SLA_BASELINE.items():
+        db.add(SlaPolicy(code=f"BASELINE-{priority_code}", priority_code=priority_code, resolution_mins=mins,
+                          calendar_code="DEFAULT-24X7", pause_statuses=["PENDING"], is_active=True))
     for code, name in _SEED_TEAMS:
         db.add(Team(code=code, name=name, is_active=True))
     for code, label, team_code, owner in _SEED_CATEGORIES:

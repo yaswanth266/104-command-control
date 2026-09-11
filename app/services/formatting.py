@@ -46,23 +46,32 @@ def enrich(ticket, category_map, team_map, sla_cfg, chronic_map=None):
 
     now = datetime.datetime.now()
     for k in ("created_at", "due_at", "assigned_at", "acknowledged_at", "resolved_at", "closed_at",
-              "called_at", "confirmed_at", "escalated_at", "first_response_at"):
+              "called_at", "confirmed_at", "escalated_at", "first_response_at", "response_due_at"):
         if isinstance(t.get(k), datetime.datetime):
             t[k] = t[k].strftime("%Y-%m-%d %H:%M")
 
     due = t.get("due_at")
     t["tat_state"] = "-"
     t["mins_left"] = None
+    # sla_status (phase 3): the spec's WITHIN/APPROACHING/BREACHED/
+    # RESOLVED_WITHIN/RESOLVED_AFTER, derived from the same tat_state this
+    # pill has always used - additive, not a replacement for tat_state/
+    # sla_tier(), which remain the single source of truth for the pill.
+    _SLA_STATUS_MAP = {"BREACHED": "BREACHED", "CRITICAL": "APPROACHING", "AT RISK": "APPROACHING", "ON TRACK": "WITHIN"}
     if due and t.get("status") not in ("CLOSED",):
         try:
             d = datetime.datetime.strptime(due, "%Y-%m-%d %H:%M")
             left = (d - now).total_seconds() / 60.0
             t["mins_left"] = round(left)
             t["tat_state"] = sla_tier(left, t.get("tat_mins"), sla_cfg)
+            t["sla_status"] = _SLA_STATUS_MAP.get(t["tat_state"], "WITHIN")
         except Exception:
-            pass
+            t["sla_status"] = None
     elif t.get("status") == "CLOSED":
         t["tat_state"] = "BREACHED" if t.get("breached") else "MET"
+        t["sla_status"] = "RESOLVED_AFTER" if t.get("breached") else "RESOLVED_WITHIN"
+    else:
+        t["sla_status"] = None
 
     veh = str(t.get("mmu_vehicle") or "")
     t["is_chronic_fault"] = bool(chronic_map and veh and veh in chronic_map)

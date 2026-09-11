@@ -155,3 +155,7 @@ def test_admin_tat_update_validates_against_priority_master(client):
     r = client.put("/cccapi/admin/sla", json={"tat": {"P1": 200}}, headers=MGR)
     assert r.status_code == 200
     assert r.json()["tat"]["P1"] == 200
+
+    # restore default so other tests can rely on TAT_DEFAULT (same convention
+    # as test_admin.py::test_sla_and_tat_update_validation)
+    client.put("/cccapi/admin/sla", json={"tat": {"P1": 240}}, headers=MGR)

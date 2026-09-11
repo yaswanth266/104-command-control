@@ -390,6 +390,10 @@ def test_priority_tat_update_dispatches_webhook(client, echo_server):
     assert data["tat_minutes"] == 180
     assert data["priority_label"]
 
+    # restore default so other tests can rely on TAT_DEFAULT (same convention
+    # as test_admin.py::test_sla_and_tat_update_validation)
+    client.put("/cccapi/admin/sla", json={"tat": {"P1": 240}}, headers=MGR)
+
 
 # ---------- admin test-ping endpoint ----------
 

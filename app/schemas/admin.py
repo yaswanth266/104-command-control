@@ -67,6 +67,40 @@ class PriorityMatrixCellIn(BaseModel):
     urgency_code: str
     priority_code: str
 
+class SlaPolicyIn(BaseModel):
+    code: str
+    priority_code: str
+    resolution_mins: int
+    calendar_code: Optional[str] = "DEFAULT-24X7"
+    response_mins: Optional[int] = None
+    subcategory_code: Optional[str] = None
+    category_code: Optional[str] = None
+    ticket_type: Optional[str] = None
+
+class SlaPolicyUpdate(BaseModel):
+    resolution_mins: Optional[int] = None
+    response_mins: Optional[int] = None
+    calendar_code: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class BusinessCalendarIn(BaseModel):
+    code: str
+    name: str
+    is_24x7: Optional[bool] = True
+    timezone: Optional[str] = "Asia/Kolkata"
+    working_hours: Optional[Dict[str, Optional[List[str]]]] = None
+
+class BusinessCalendarUpdate(BaseModel):
+    name: Optional[str] = None
+    is_24x7: Optional[bool] = None
+    timezone: Optional[str] = None
+    working_hours: Optional[Dict[str, Optional[List[str]]]] = None
+    is_active: Optional[bool] = None
+
+class CalendarHolidayIn(BaseModel):
+    holiday_date: str
+    label: Optional[str] = None
+
 class MachineIn(BaseModel):
     name: str
 
