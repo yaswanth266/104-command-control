@@ -277,3 +277,64 @@ def test_not_resolved_rejected_after_confirmation(client):
     assert r_nr.status_code == 409
     assert "not valid while the ticket is CLOSURE_CONFIRMATION" in r_nr.text
 
+
+def test_lt_can_reopen_ticket_after_confirmation_within_24h(client):
+    r = _raise_lt_ticket(client)
+    tid = r.json()["id"]
+
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=CDA)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "resolve", "resolution": "Cleaned connector"}, headers=CDA)
+    r_conf = client.post("/cccapi/ticket/action", json={"id": tid, "action": "confirm", "confirmed_by": LT_USERNAME}, headers=LT)
+    assert r_conf.status_code == 200
+
+    # Ticket is now in CLOSURE_CONFIRMATION
+    db = SessionLocal()
+    t = db.query(Ticket).filter(Ticket.id == tid).first()
+    assert t.status == "CLOSURE_CONFIRMATION"
+    assert t.confirmed_at is not None
+    db.close()
+
+    # LT reopens within 24h window
+    r_reopen = client.post("/cccapi/ticket/action", json={
+        "id": tid,
+        "action": "reopen",
+        "note": "Machine failed again during afternoon camp run"
+    }, headers=LT)
+    assert r_reopen.status_code == 200, r_reopen.text
+
+    db = SessionLocal()
+    t = db.query(Ticket).filter(Ticket.id == tid).first()
+    assert t.status == "IN_PROGRESS"
+    assert t.resolved_at is None
+    assert t.confirmed_by is None
+    assert t.confirmed_at is None
+    assert t.closed_at is None
+    assert t.reopened == 1
+    db.close()
+
+
+def test_lt_reopen_after_confirmation_blocked_past_24h(client):
+    r = _raise_lt_ticket(client)
+    tid = r.json()["id"]
+
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "acknowledge"}, headers=CDA)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "resolve", "resolution": "Cleaned connector"}, headers=CDA)
+    client.post("/cccapi/ticket/action", json={"id": tid, "action": "confirm", "confirmed_by": LT_USERNAME}, headers=LT)
+
+    # Backdate confirmed_at past 24 hours (e.g. 26 hours ago)
+    db = SessionLocal()
+    t = db.query(Ticket).filter(Ticket.id == tid).first()
+    t.confirmed_at = datetime.datetime.now() - datetime.timedelta(hours=26)
+    db.commit()
+    db.close()
+
+    # Reopen should now be rejected by 24h SLA policy
+    r_reopen = client.post("/cccapi/ticket/action", json={
+        "id": tid,
+        "action": "reopen",
+        "note": "Recurred after 26 hours"
+    }, headers=LT)
+    assert r_reopen.status_code == 409
+    assert "can no longer be reopened" in r_reopen.text
+
+
