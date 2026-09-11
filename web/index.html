@@ -4,17 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>104 Central Command Center</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='13' height='13' rx='3' fill='%23FBBC41'/%3E%3Crect x='17' y='2' width='13' height='13' rx='3' fill='%23FB8B00'/%3E%3Crect x='2' y='17' width='13' height='13' rx='3' fill='%23CD004D'/%3E%3Crect x='17' y='17' width='13' height='13' rx='3' fill='%234E148C'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="/static/style.css?v=56">
-<link rel="stylesheet" href="/static/style.css?v=58">
+<link rel="icon" type="image/jpeg" href="/static/logo.jpg">
+<link rel="stylesheet" href="/static/style.css?v=68">
 
 </head>
 <body>
 
 <div id="login" class="lwrap">
   <div class="lcard">
-    <div style="text-align:center">
-      <span class="mark"><i style="background:#FBBC41"></i><i style="background:#FB8B00"></i><i style="background:#CD004D"></i><i style="background:#4E148C"></i></span>
+    <div class="login-logo-container">
+      <img src="/static/logo.jpg" alt="BAVYA Logo" class="login-logo-img">
     </div>
 
     <!-- Sign In Section -->
@@ -93,14 +92,20 @@
 <div id="app" class="hide">
   <div class="top">
     <button class="nav-toggle" id="nav_toggle" onclick="toggleSidebar()" aria-label="Toggle Menu">&#9776;</button>
-    <span class="mark" style="width:26px;height:26px"><i style="background:#FBBC41"></i><i style="background:#FB8B00"></i><i style="background:#CD004D"></i><i style="background:#4E148C"></i></span>
+    <div class="brand-logo-container">
+      <img src="/static/logo.jpg" alt="BAVYA Logo" class="brand-logo-img">
+    </div>
     <div class="wm">Central Command Center</div><div class="tag">104 DIAGNOSTIC</div>
     <div class="sp"></div>
     <button class="auto-refresh-btn" id="auto_refresh_btn" onclick="toggleAutoRefresh()" title="Toggle live queue auto-refresh">
       <span class="pulse-dot"></span><span id="auto_refresh_label">Live</span>
     </button>
     <button class="sound-toggle-btn on" id="sound_toggle_btn" onclick="toggleSoundAlerts()" title="Toggle audio alert chimes">
-      <span>🔔 Audio ON</span>
+      <svg class="sound-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px">
+        <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+        <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+      </svg>
+      <span id="sound_label">Audio ON</span>
     </button>
     <button class="bell" id="bell" onclick="toggleNotifs()" aria-label="Notifications" title="Notifications">
       <svg class="bell-icon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -128,8 +133,7 @@
 <div id="modal"></div>
 <div id="npanel"></div>
 
-<script src="/static/app.js?v=56"></script>
-<script src="/static/app.js?v=58"></script>
+<script src="/static/app.js?v=68"></script>
 
 </body>
 </html>

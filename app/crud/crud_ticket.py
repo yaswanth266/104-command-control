@@ -2,7 +2,7 @@ import json
 import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, and_, desc, text
+from sqlalchemy import or_, and_, desc, text, func
 from sqlalchemy.exc import IntegrityError
 from app.models.ticket import Ticket
 from app.models.config import Config
@@ -103,7 +103,11 @@ def get_tickets(db: Session, user: dict, status: str = "", team: str = "", scope
     if district_id:
         query = query.filter(Ticket.district_id == district_id)
     elif district:
-        query = query.filter(Ticket.district.like(f"%{district}%"))
+        d_clean = district.strip().lower()
+        if d_clean in ("unassigned", "unassigned district", "__unassigned__"):
+            query = query.filter(or_(Ticket.district == None, Ticket.district == "", func.trim(Ticket.district) == ""))
+        else:
+            query = query.filter(Ticket.district.like(f"%{district}%"))
     if mandal_id:
         query = query.filter(Ticket.mandal_id == mandal_id)
 

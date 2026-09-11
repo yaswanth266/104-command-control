@@ -67,21 +67,25 @@ function toggleSoundAlerts() {
   localStorage.setItem('ccc_sound_enabled', SOUND_ENABLED ? '1' : '0');
   if (SOUND_ENABLED) {
     playAlertSound('new');
-    toast('🔊 Audio alerts turned ON');
+    toast('Audio alerts turned ON');
   } else {
-    toast('🔕 Audio alerts MUTED');
+    toast('Audio alerts MUTED');
   }
   var btn = document.getElementById('sound_toggle_btn');
   if (btn) {
     btn.className = 'sound-toggle-btn ' + (SOUND_ENABLED ? 'on' : 'off');
-    btn.innerHTML = '<span>' + (SOUND_ENABLED ? '🔔 Audio ON' : '🔕 Audio Muted') + '</span>';
+    if (SOUND_ENABLED) {
+      btn.innerHTML = '<svg class="sound-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg><span id="sound_label">Audio ON</span>';
+    } else {
+      btn.innerHTML = '<svg class="sound-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg><span id="sound_label">Audio Muted</span>';
+    }
   }
 }
 
 function toggleAutoRefresh() {
   AUTO_REFRESH_ENABLED = !AUTO_REFRESH_ENABLED;
   REFRESH_COUNTDOWN = AUTO_REFRESH_SECS;
-  toast(AUTO_REFRESH_ENABLED ? '🟢 Live Queue Auto-Refresh Active' : '⏸️ Auto-Refresh Paused');
+  toast(AUTO_REFRESH_ENABLED ? 'Live Queue Auto-Refresh Active' : 'Auto-Refresh Paused');
   var btn = document.getElementById('auto_refresh_btn');
   if (btn) {
     btn.className = 'auto-refresh-btn ' + (AUTO_REFRESH_ENABLED ? 'active' : 'paused');
@@ -91,7 +95,7 @@ function toggleAutoRefresh() {
 
 function testAudioAlert() {
   playAlertSound('p1');
-  toast('🔔 Tested P1 Emergency Audio Chime');
+  toast('Tested P1 Emergency Audio Chime');
 }
 
 function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
@@ -558,6 +562,26 @@ function setQueueScope(sc) {
   load(true);
 }
 
+var NAV_ICONS = {
+  queue: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>',
+  register: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>',
+  report: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>',
+  tickets: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"></path></svg>',
+  monitor: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>',
+  matrix: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path></svg>',
+  admin: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>',
+  profile: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>',
+  teams: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>',
+  categories: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path><line x1="7" y1="7" x2="7.01" y2="7"></line></svg>',
+  geo: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon><line x1="8" y1="2" x2="8" y2="18"></line><line x1="16" y1="6" x2="16" y2="22"></line></svg>',
+  vehicles: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"></rect><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"></polygon><circle cx="5.5" cy="18.5" r="2.5"></circle><circle cx="18.5" cy="18.5" r="2.5"></circle></svg>',
+  reasons: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>',
+  machines: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2" ry="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>',
+  sla: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>',
+  users: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8.5" cy="7" r="4"></circle><polyline points="17 11 19 13 23 9"></polyline></svg>',
+  audit: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>'
+};
+
 function renderNavTree() {
   var el = document.getElementById('nav_tree');
   if (!el || !ME) return;
@@ -570,25 +594,25 @@ function renderNavTree() {
     var isStatus = function(st) { return isQueue && !FILT.scope && FILT.status === st; };
 
     var qSubFilters = [
-      { label: 'All Tickets', icon: '📋', active: isStatus(''), onclick: "setQueueStatus('')" },
-      { label: 'Open', icon: '🟢', active: isStatus('open'), onclick: "setQueueStatus('open')" },
-      { label: 'Closed', icon: '🟣', active: isStatus('CLOSED'), onclick: "setQueueStatus('CLOSED')" },
-      { label: 'TAT Breached', icon: '🚨', active: isScope('breach'), onclick: "setQueueScope('breach')" },
-      { label: 'At Risk', icon: '⚠️', active: isScope('risk'), onclick: "setQueueScope('risk')" },
-      { label: 'Critical', icon: '🔥', active: isScope('critical'), onclick: "setQueueScope('critical')" },
-      { label: 'Escalated', icon: '⚡', active: isScope('escalated'), onclick: "setQueueScope('escalated')" },
-      { label: 'Unassigned', icon: '👤', active: isScope('unassigned'), onclick: "setQueueScope('unassigned')" }
+      { label: 'All Tickets', dot: 'all', active: isStatus(''), onclick: "setQueueStatus('')" },
+      { label: 'Open', dot: 'open', active: isStatus('open'), onclick: "setQueueStatus('open')" },
+      { label: 'Closed', dot: 'closed', active: isStatus('CLOSED'), onclick: "setQueueStatus('CLOSED')" },
+      { label: 'TAT Breached', dot: 'breached', active: isScope('breach'), onclick: "setQueueScope('breach')" },
+      { label: 'At Risk', dot: 'risk', active: isScope('risk'), onclick: "setQueueScope('risk')" },
+      { label: 'Critical', dot: 'critical', active: isScope('critical'), onclick: "setQueueScope('critical')" },
+      { label: 'Escalated', dot: 'escalated', active: isScope('escalated'), onclick: "setQueueScope('escalated')" },
+      { label: 'Unassigned', dot: 'unassigned', active: isScope('unassigned'), onclick: "setQueueScope('unassigned')" }
     ];
 
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (NAV_EXPANDED.queue ? 'open ' : '') + (isQueue ? 'active-branch' : '') + '" onclick="toggleNavGroup(\'queue\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">🎫</span><span class="nav-parent-title">Ticket Queue</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.queue + '</span><span class="nav-parent-title">Ticket Queue</span></div>' +
         '<span class="nav-chevron">&#9654;</span>' +
       '</div>' +
       '<div class="nav-children' + (NAV_EXPANDED.queue ? '' : ' hide') + '">' +
         qSubFilters.map(function(item) {
           return '<div class="nav-subitem' + (item.active ? ' on' : '') + '" onclick="' + item.onclick + '">' +
-            '<span class="nav-subitem-icon">' + item.icon + '</span><span>' + esc(item.label) + '</span>' +
+            '<span class="nav-subitem-icon"><span class="nav-status-indicator nav-dot-' + item.dot + '"></span></span><span>' + esc(item.label) + '</span>' +
           '</div>';
         }).join('') +
       '</div>' +
@@ -600,7 +624,7 @@ function renderNavTree() {
     var isNew = (TAB === 'new');
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (isNew ? 'active-branch' : '') + '" onclick="go(\'new\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">📞</span><span class="nav-parent-title">Register Call</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.register + '</span><span class="nav-parent-title">Register Call</span></div>' +
       '</div>' +
     '</div>';
   }
@@ -609,12 +633,12 @@ function renderNavTree() {
   if (ME.role === 'LT') {
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (TAB === 'report' ? 'active-branch' : '') + '" onclick="go(\'report\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">📝</span><span class="nav-parent-title">Report an Issue</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.report + '</span><span class="nav-parent-title">Report an Issue</span></div>' +
       '</div>' +
     '</div>';
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (TAB === 'mine' ? 'active-branch' : '') + '" onclick="go(\'mine\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">🎫</span><span class="nav-parent-title">My Tickets</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.tickets + '</span><span class="nav-parent-title">My Tickets</span></div>' +
       '</div>' +
     '</div>';
   }
@@ -624,7 +648,7 @@ function renderNavTree() {
     var isDash = (TAB === 'dash');
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (isDash ? 'active-branch' : '') + '" onclick="go(\'dash\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">📊</span><span class="nav-parent-title">' + (ME.role === 'CC_MANAGER' ? 'Daily Monitoring' : 'Team Monitoring') + '</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.monitor + '</span><span class="nav-parent-title">' + (ME.role === 'CC_MANAGER' ? 'Daily Monitoring' : 'Team Monitoring') + '</span></div>' +
       '</div>' +
     '</div>';
   }
@@ -634,7 +658,7 @@ function renderNavTree() {
     var isMatrix = (TAB === 'matrix');
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (isMatrix ? 'active-branch' : '') + '" onclick="go(\'matrix\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">🔀</span><span class="nav-parent-title">Routing Matrix</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.matrix + '</span><span class="nav-parent-title">Routing Matrix</span></div>' +
       '</div>' +
     '</div>';
   }
@@ -643,26 +667,26 @@ function renderNavTree() {
   if (ME.role === 'CC_MANAGER') {
     var isAdmin = (TAB === 'admin');
     var aItems = [
-      { id: 'teams', label: 'Teams', icon: '🏢' },
-      { id: 'categories', label: 'Categories', icon: '🏷️' },
-      { id: 'geo', label: 'Geography', icon: '🗺️' },
-      { id: 'vehicles', label: 'Vehicles', icon: '🚐' },
-      { id: 'reasons', label: 'LT Reasons', icon: '⚠️' },
-      { id: 'machines', label: 'Machines', icon: '🔬' },
-      { id: 'sla', label: 'SLA & TAT', icon: '⏱️' },
-      { id: 'users', label: 'Users', icon: '👥' },
-      { id: 'audit', label: 'Audit Log', icon: '📜' }
+      { id: 'teams', label: 'Teams' },
+      { id: 'categories', label: 'Categories' },
+      { id: 'geo', label: 'Geography' },
+      { id: 'vehicles', label: 'Vehicles' },
+      { id: 'reasons', label: 'LT Reasons' },
+      { id: 'machines', label: 'Machines' },
+      { id: 'sla', label: 'SLA & TAT' },
+      { id: 'users', label: 'Users' },
+      { id: 'audit', label: 'Audit Log' }
     ];
     html += '<div class="nav-group">' +
       '<div class="nav-parent ' + (NAV_EXPANDED.admin ? 'open ' : '') + (isAdmin ? 'active-branch' : '') + '" onclick="toggleNavGroup(\'admin\')">' +
-        '<div class="nav-parent-left"><span class="nav-parent-icon">⚙️</span><span class="nav-parent-title">Admin Portal</span></div>' +
+        '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.admin + '</span><span class="nav-parent-title">Admin Portal</span></div>' +
         '<span class="nav-chevron">&#9654;</span>' +
       '</div>' +
       '<div class="nav-children' + (NAV_EXPANDED.admin ? '' : ' hide') + '">' +
         aItems.map(function(item) {
           var on = (TAB === 'admin' && ADMIN_TAB === item.id) ? ' on' : '';
           return '<div class="nav-subitem' + on + '" onclick="goAdminItem(\'' + item.id + '\')">' +
-            '<span class="nav-subitem-icon">' + item.icon + '</span><span>' + esc(item.label) + '</span>' +
+            '<span class="nav-subitem-icon">' + (NAV_ICONS[item.id] || '') + '</span><span>' + esc(item.label) + '</span>' +
           '</div>';
         }).join('') +
       '</div>' +
@@ -672,7 +696,7 @@ function renderNavTree() {
   // 7. My Profile (all roles)
   html += '<div class="nav-group">' +
     '<div class="nav-parent" onclick="openProfile()">' +
-      '<div class="nav-parent-left"><span class="nav-parent-icon">👤</span><span class="nav-parent-title">My Profile</span></div>' +
+      '<div class="nav-parent-left"><span class="nav-parent-icon">' + NAV_ICONS.profile + '</span><span class="nav-parent-title">My Profile</span></div>' +
     '</div>' +
   '</div>';
 
@@ -759,8 +783,8 @@ function load(forced) {
           playAlertSound('p1');
           var topT = ROWS[0] || {};
           var msg = incomingNew === 1 ?
-            ('🚨 New Breakdown Alert: Ticket ' + esc(topT.ticket_no) + (topT.mmu_vehicle ? (' · MMU ' + esc(topT.mmu_vehicle)) : '')) :
-            ('🚨 ' + incomingNew + ' new breakdown tickets received!');
+            ('New Breakdown Alert: Ticket ' + esc(topT.ticket_no) + (topT.mmu_vehicle ? (' · MMU ' + esc(topT.mmu_vehicle)) : '')) :
+            (incomingNew + ' new breakdown tickets received!');
           toast(msg);
         }
 
@@ -1002,7 +1026,7 @@ function renderQueueRow(t) {
   var raisedTime = formatDT(t.created_at);
   var dueTime = formatDT(t.due_at);
   var chronicBadge = t.is_chronic_fault ?
-    (' <span class="pill-chronic" title="' + t.chronic_breakdown_count + ' breakdowns in 30 days">⚠️ ' + t.chronic_breakdown_count + 'x in 30d</span>') : '';
+    (' <span class="pill-chronic" title="' + t.chronic_breakdown_count + ' breakdowns in 30 days">' + t.chronic_breakdown_count + 'x in 30d</span>') : '';
   var vipBadge = t.vip ? ' <span class="pill p-crit" style="font-size:10px;padding:1px 6px">VIP</span>' : '';
   var escBadge = t.escalated ? ' <span class="pill p-crit" style="font-size:10px;padding:2px 6px;margin-left:4px">ESC</span>' : '';
 
@@ -1060,7 +1084,7 @@ function updateQueueTableOnly() {
     var hasActiveFilters = FILT.q || FILT.team || FILT.district_id || FILT.date_from || FILT.date_to || FILT.date_preset;
     var emptyMsg = hasActiveFilters ?
       '<div style="padding:36px 20px;text-align:center">' +
-        '<div style="font-size:26px;margin-bottom:8px">🔍</div>' +
+        '<div style="display:flex;justify-content:center;margin-bottom:8px"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>' +
         '<div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px">No tickets found matching the selected filters</div>' +
         '<div style="font-size:13px;color:var(--ink2);margin-bottom:14px">Try selecting "All Time" or resetting filters to view all active tickets.</div>' +
         '<button class="btn sm" onclick="clearFilters()" style="padding:6px 18px">Clear All Filters</button>' +
@@ -1100,7 +1124,7 @@ function viewQueue() {
   var vehicleNotice = '';
   if (FILT.mmu_vehicle) {
     vehicleNotice = '<div style="background:#FAF5FF;border:1px solid #D8B4FE;border-radius:8px;padding:8px 14px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;font-size:13px">' +
-      '<span>🚐 Filtered by MMU Vehicle: <b>' + esc(FILT.mmu_vehicle) + '</b></span>' +
+      '<span>Filtered by MMU Vehicle: <b>' + esc(FILT.mmu_vehicle) + '</b></span>' +
       '<button class="btn sm o" onclick="FILT.mmu_vehicle=\'\';saveState();load(true);render();">Clear Filter</button>' +
     '</div>';
   }
@@ -1162,7 +1186,7 @@ function viewQueue() {
 
   var bar = vehicleNotice + '<div class="card" style="margin-bottom:14px;padding:16px 20px;border-radius:12px;background:#fff;border:1px solid #E5E7EB;box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #F3F4F6">' +
-      '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">📋 ' + esc(filterTitle) + '</div>' +
+      '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">' + esc(filterTitle) + '</div>' +
       '<div id="queue_total_badge" style="font-size:12px;font-weight:700;background:#EDE9FE;color:#6D28D9;padding:4px 12px;border-radius:20px">' +
         ROWTOTAL + ' ticket' + (ROWTOTAL === 1 ? '' : 's') +
       '</div>' +
@@ -1194,7 +1218,7 @@ function viewQueue() {
     var hasActiveFilters = FILT.q || FILT.team || FILT.district_id || FILT.date_from || FILT.date_to || FILT.date_preset;
     var emptyMsg = hasActiveFilters ?
       '<div style="padding:40px 20px;text-align:center">' +
-        '<div style="font-size:28px;margin-bottom:8px">🔍</div>' +
+        '<div style="display:flex;justify-content:center;margin-bottom:8px"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg></div>' +
         '<div style="font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px">No tickets found matching the selected filters</div>' +
         '<div style="font-size:13px;color:var(--ink2);margin-bottom:14px">Try selecting "All Time" or resetting filters to view all active tickets.</div>' +
         '<button class="btn sm" onclick="clearFilters()" style="padding:6px 18px">Clear All Filters</button>' +
@@ -1462,7 +1486,7 @@ function renderNewTicketPhotosPreview() {
     var isImg = f.type.indexOf('image') === 0;
     var iconOrImg = isImg ?
       ('<img src="' + URL.createObjectURL(f) + '" alt="Preview">') :
-      ('<div style="width:98px;height:98px;display:flex;align-items:center;justify-content:center;font-size:32px;background:#f3f4f6;border-radius:8px">📄</div>');
+      ('<div style="width:98px;height:98px;display:flex;align-items:center;justify-content:center;background:#f3f4f6;border-radius:8px"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></div>');
     return '<div class="photo-thumb-card">' +
       iconOrImg +
       '<span class="photo-size" title="' + esc(f.name) + '">' + esc(f.name) + ' (' + Math.round(f.size / 1024) + ' KB)</span>' +
@@ -1784,11 +1808,41 @@ function exportDash() {
   downloadExcel(url, 'Dashboard_Summary.xlsx');
 }
 
+function formatISODate(d) {
+  if (!d) return '';
+  var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+function openCalendarPicker(id) {
+  var el = document.getElementById(id);
+  if (el) {
+    el.focus();
+    try {
+      if (typeof el.showPicker === 'function') el.showPicker();
+    } catch (e) {}
+  }
+}
+
 function onDashTimePresetChange(preset) {
   var customWrap = document.getElementById('dash_custom_dates');
   if (preset === 'custom') {
     DASH_FILT.date_preset = 'custom';
     if (customWrap) customWrap.style.display = 'flex';
+    if (customWrap) {
+      customWrap.style.display = 'flex';
+      var fEl = document.getElementById('dash_from');
+      var tEl = document.getElementById('dash_to');
+      var now = new Date();
+      if (fEl && !fEl.value) {
+        var d30 = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+        fEl.value = DASH_FILT.date_from || formatISODate(d30);
+      }
+      if (tEl && !tEl.value) {
+        tEl.value = DASH_FILT.date_to || formatISODate(now);
+      }
+      setTimeout(function () { openCalendarPicker('dash_from'); }, 60);
+    }
     return;
   }
   if (customWrap) customWrap.style.display = 'none';
@@ -1861,9 +1915,602 @@ function clearDashFilters() {
   load(true);
 }
 
+/* ---------- dashboard state & helpers for sections A through H ---------- */
+window.DASH_TREND_VIEW = window.DASH_TREND_VIEW || 'week'; // 'week', 'month', 'custom'
+window.DASH_AGEING_VIEW = window.DASH_AGEING_VIEW || 'week'; // 'week', 'month', 'custom'
+window.DASH_APPROLE_VIEW = window.DASH_APPROLE_VIEW || 'app'; // 'app', 'role'
+window.DASH_ACTIVITY_FILTER = window.DASH_ACTIVITY_FILTER || 'all'; // 'all', 'p1_p2', 'breach', 'escalate', 'resolved', 'status'
+
+function setDashTrendView(mode) {
+  window.DASH_TREND_VIEW = mode;
+  var el = document.getElementById('dash_trend_chart_container');
+  if (el && DASH) el.innerHTML = renderDashTrendChartContent(DASH.trend || [], mode);
+  var bar = document.getElementById('dash_trend_custom_bar');
+  if (bar) bar.style.display = (mode === 'custom') ? 'flex' : 'none';
+
+  var btns = document.querySelectorAll('.dash-trend-btn');
+  btns.forEach(function (b) {
+    b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+  });
+
+  if (mode === 'custom') {
+    var now = new Date();
+    var fEl = document.getElementById('trend_date_from');
+    var tEl = document.getElementById('trend_date_to');
+    if (fEl && !fEl.value) {
+      var d30 = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+      fEl.value = DASH_FILT.date_from || formatISODate(d30);
+    }
+    if (tEl && !tEl.value) {
+      tEl.value = DASH_FILT.date_to || formatISODate(now);
+    }
+    var el = document.getElementById('dash_trend_chart_container');
+    if (el && DASH) el.innerHTML = renderDashTrendChartContent(DASH.trend || [], mode);
+    setTimeout(function () { openCalendarPicker('trend_date_from'); }, 60);
+  } else {
+    var el = document.getElementById('dash_trend_chart_container');
+    if (el && DASH) el.innerHTML = renderDashTrendChartContent(DASH.trend || [], mode);
+  }
+}
+
+function applyTrendCustomDates() {
+  var f = (document.getElementById('trend_date_from') ? document.getElementById('trend_date_from').value : '') || '';
+  var t = (document.getElementById('trend_date_to') ? document.getElementById('trend_date_to').value : '') || '';
+  if (!f && !t) {
+    toast('Please select at least one date from the calendar');
+    return;
+  }
+  DASH_FILT.date_preset = 'custom';
+  DASH_FILT.date_from = f;
+  DASH_FILT.date_to = t;
+  window.DASH_TREND_VIEW = 'custom';
+
+  var df = document.getElementById('dash_from');
+  var dt = document.getElementById('dash_to');
+  var dtSel = document.getElementById('dash_time');
+  if (df) df.value = f;
+  if (dt) dt.value = t;
+  if (dtSel) dtSel.value = 'custom';
+  var customWrap = document.getElementById('dash_custom_dates');
+  if (customWrap) customWrap.style.display = 'flex';
+
+  var af = document.getElementById('ageing_date_from');
+  var at = document.getElementById('ageing_date_to');
+  if (af) af.value = f;
+  if (at) at.value = t;
+
+  saveState();
+  load(true);
+}
+
+function onTrendDateChange() {
+  var el = document.getElementById('dash_trend_chart_container');
+  if (el && DASH) el.innerHTML = renderDashTrendChartContent(DASH.trend || [], 'custom');
+}
+
+function renderDashTrendChartContent(trendRows, mode) {
+  var MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function parseDate(s) {
+    if (!s) return null;
+    var p = String(s).trim().split('-');
+    if (p.length !== 3) return null;
+    var y = parseInt(p[0], 10), m = parseInt(p[1], 10) - 1, d = parseInt(p[2], 10);
+    if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
+    return new Date(y, m, d, 12, 0, 0);
+  }
+  function toISO(dt) {
+    var y = dt.getFullYear();
+    var m = String(dt.getMonth() + 1);
+    if (m.length < 2) m = '0' + m;
+    var d = String(dt.getDate());
+    if (d.length < 2) d = '0' + d;
+    return y + '-' + m + '-' + d;
+  }
+  function toHuman(dt) {
+    var d = String(dt.getDate());
+    if (d.length < 2) d = '0' + d;
+    return d + ' ' + MONTH_NAMES[dt.getMonth()];
+  }
+  function toFullHuman(dt) {
+    var d = String(dt.getDate());
+    if (d.length < 2) d = '0' + d;
+    return d + ' ' + MONTH_NAMES[dt.getMonth()] + ' ' + dt.getFullYear();
+  }
+
+  var now = new Date();
+  var sDate = null, eDate = null;
+
+  if (mode === 'week') {
+    eDate = DASH_FILT.date_to ? parseDate(DASH_FILT.date_to) : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    if (!eDate) eDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    sDate = new Date(eDate.getTime() - 6 * 24 * 3600 * 1000);
+  } else if (mode === 'month') {
+    eDate = DASH_FILT.date_to ? parseDate(DASH_FILT.date_to) : new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    if (!eDate) eDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    sDate = new Date(eDate.getTime() - 29 * 24 * 3600 * 1000);
+  } else {
+    // custom
+    var fVal = (document.getElementById('trend_date_from') ? document.getElementById('trend_date_from').value : '') || DASH_FILT.date_from || '';
+    var tVal = (document.getElementById('trend_date_to') ? document.getElementById('trend_date_to').value : '') || DASH_FILT.date_to || '';
+    if (fVal) sDate = parseDate(fVal);
+    if (tVal) eDate = parseDate(tVal);
+    if (!sDate && !eDate) {
+      if (trendRows && trendRows.length) {
+        sDate = parseDate(trendRows[0].d);
+        eDate = parseDate(trendRows[trendRows.length - 1].d);
+      } else {
+        eDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+        sDate = new Date(eDate.getTime() - 29 * 24 * 3600 * 1000);
+      }
+    } else if (!sDate && eDate) {
+      sDate = new Date(eDate.getTime() - 29 * 24 * 3600 * 1000);
+    } else if (sDate && !eDate) {
+      eDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 12);
+    }
+  }
+
+  if (!sDate) sDate = new Date(now.getTime() - 6 * 24 * 3600 * 1000);
+  if (!eDate) eDate = new Date(now.getTime());
+
+  if (sDate.getTime() > eDate.getTime()) {
+    var tmp = sDate;
+    sDate = eDate;
+    eDate = tmp;
+  }
+
+  // Build row lookup from database rows
+  var rowMap = {};
+  (trendRows || []).forEach(function (r) {
+    if (r && r.d) {
+      rowMap[r.d] = {
+        created_count: Number(r.created_count || 0),
+        resolved_count: Number(r.resolved_count || 0)
+      };
+    }
+  });
+
+  // Generate continuous day series
+  var data = [];
+  var cur = new Date(sDate.getFullYear(), sDate.getMonth(), sDate.getDate(), 12);
+  var targetEnd = new Date(eDate.getFullYear(), eDate.getMonth(), eDate.getDate(), 12);
+  var safetyLimit = 0;
+  while (cur.getTime() <= targetEnd.getTime() && safetyLimit < 180) {
+    var dStr = toISO(cur);
+    var entry = rowMap[dStr] || { created_count: 0, resolved_count: 0 };
+    data.push({
+      d: dStr,
+      dt: new Date(cur.getTime()),
+      created_count: entry.created_count,
+      resolved_count: entry.resolved_count
+    });
+    cur.setDate(cur.getDate() + 1);
+    safetyLimit++;
+  }
+
+  if (!data.length) {
+    return '<div class="muted" style="padding:40px;text-align:center">No trend activity logged for this time period</div>';
+  }
+
+  var maxVal = 5;
+  data.forEach(function (r) {
+    if (r.created_count > maxVal) maxVal = r.created_count;
+    if (r.resolved_count > maxVal) maxVal = r.resolved_count;
+  });
+
+  var totalCreated = data.reduce(function (acc, x) { return acc + (x.created_count || 0); }, 0);
+  var totalResolved = data.reduce(function (acc, x) { return acc + (x.resolved_count || 0); }, 0);
+  var resolutionRate = totalCreated > 0 ? (Math.round((totalResolved / totalCreated) * 1000) / 10) : 100;
+
+  var chartW = 560;
+  var chartH = 150;
+  var padLeft = 32;
+  var padBottom = 26;
+  var padTop = 16;
+  var padRight = 16;
+  var plotW = chartW - padLeft - padRight;
+  var plotH = chartH - padTop - padBottom;
+
+  var numPoints = data.length;
+  var slotW = plotW / Math.max(1, numPoints);
+  var barW = Math.max(2, Math.min(12, slotW * 0.35));
+
+  // Determine tick label interval
+  var maxLabels = (numPoints <= 7 ? numPoints : 6);
+  var step = Math.max(1, Math.round(numPoints / maxLabels));
+  var minGap = Math.max(2, Math.floor(step * 0.7));
+
+  var barsHtml = '';
+  data.forEach(function (d, i) {
+    var xSlotStart = padLeft + i * slotW;
+    var xMid = xSlotStart + slotW / 2;
+
+    var cH = d.created_count > 0 ? Math.max(3, Math.round(((d.created_count) / maxVal) * plotH)) : 0;
+    var rH = d.resolved_count > 0 ? Math.max(3, Math.round(((d.resolved_count) / maxVal) * plotH)) : 0;
+
+    var cY = padTop + plotH - cH;
+    var rY = padTop + plotH - rH;
+
+    var dateLbl = toHuman(d.dt);
+    var fullLbl = toFullHuman(d.dt);
+
+    // Transparent full-slot hit area for hover tooltip on every day
+    barsHtml += '<rect x="' + xSlotStart + '" y="' + padTop + '" width="' + slotW + '" height="' + plotH + '" fill="transparent" style="cursor:pointer">' +
+      '<title>Date: ' + esc(fullLbl) + '&#10;Tickets Created: ' + d.created_count + '&#10;Tickets Resolved: ' + d.resolved_count + '</title></rect>';
+
+    // Created bar (indigo)
+    if (d.created_count > 0) {
+      barsHtml += '<rect x="' + (xMid - barW - 0.5) + '" y="' + cY + '" width="' + barW + '" height="' + cH + '" fill="#6366F1" rx="2" style="cursor:pointer">' +
+        '<title>Date: ' + esc(fullLbl) + '&#10;Tickets Created: ' + d.created_count + '</title></rect>';
+    }
+    // Resolved bar (emerald)
+    if (d.resolved_count > 0) {
+      barsHtml += '<rect x="' + (xMid + 0.5) + '" y="' + rY + '" width="' + barW + '" height="' + rH + '" fill="#10B981" rx="2" style="cursor:pointer">' +
+        '<title>Date: ' + esc(fullLbl) + '&#10;Tickets Resolved: ' + d.resolved_count + '</title></rect>';
+    }
+
+    // X-axis date labels
+    var printLabel = false;
+    if (numPoints <= 7) {
+      printLabel = true;
+    } else if (i === 0 || i === numPoints - 1) {
+      printLabel = true;
+    } else if (i % step === 0 && i >= minGap && (numPoints - 1 - i) >= minGap) {
+      printLabel = true;
+    }
+
+    if (printLabel) {
+      barsHtml += '<text x="' + xMid + '" y="' + (chartH - 6) + '" font-size="9.5" fill="#6B7280" font-weight="500" text-anchor="middle">' + esc(dateLbl) + '</text>';
+    }
+  });
+
+  // Grid lines
+  var midVal = Math.round(maxVal / 2);
+  var gridHtml = '<line x1="' + padLeft + '" y1="' + (padTop + plotH) + '" x2="' + (chartW - padRight) + '" y2="' + (padTop + plotH) + '" stroke="#E5E7EB" stroke-width="1"/>' +
+    '<text x="' + (padLeft - 6) + '" y="' + (padTop + plotH + 4) + '" font-size="9" fill="#9CA3AF" text-anchor="end">0</text>' +
+    '<line x1="' + padLeft + '" y1="' + (padTop + Math.round(plotH / 2)) + '" x2="' + (chartW - padRight) + '" y2="' + (padTop + Math.round(plotH / 2)) + '" stroke="#F3F4F6" stroke-dasharray="2,2"/>' +
+    '<text x="' + (padLeft - 6) + '" y="' + (padTop + Math.round(plotH / 2) + 4) + '" font-size="9" fill="#9CA3AF" text-anchor="end">' + midVal + '</text>' +
+    '<line x1="' + padLeft + '" y1="' + padTop + '" x2="' + (chartW - padRight) + '" y2="' + padTop + '" stroke="#F3F4F6" stroke-dasharray="2,2"/>' +
+    '<text x="' + (padLeft - 6) + '" y="' + (padTop + 4) + '" font-size="9" fill="#9CA3AF" text-anchor="end">' + maxVal + '</text>';
+
+  var startStr = toHuman(data[0].dt);
+  var endStr = toHuman(data[data.length - 1].dt);
+
+  return '<div style="width:100%">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:0 4px 6px;font-size:11.5px;color:var(--ink2)">' +
+      '<span>Timeline: <strong style="color:var(--ink)">' + esc(startStr) + '</strong> to <strong style="color:var(--ink)">' + esc(endStr) + '</strong> (' + numPoints + ' days)</span>' +
+      '<span>Activity: <strong style="color:var(--ink)">' + (totalCreated + totalResolved) + '</strong> tickets</span>' +
+    '</div>' +
+    '<svg viewBox="0 0 ' + chartW + ' ' + chartH + '" style="width:100%;height:auto;display:block">' +
+      gridHtml + barsHtml +
+    '</svg>' +
+    '<div style="display:flex;justify-content:space-around;padding-top:12px;margin-top:6px;border-top:1px solid #F3F4F6;flex-wrap:wrap;gap:10px">' +
+      '<div><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#6366F1;margin-right:6px"></span><span class="muted" style="font-size:12px">Total Created:</span> <b style="font-size:13px;color:var(--ink)">' + totalCreated + '</b></div>' +
+      '<div><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:#10B981;margin-right:6px"></span><span class="muted" style="font-size:12px">Total Resolved:</span> <b style="font-size:13px;color:var(--ink)">' + totalResolved + '</b></div>' +
+      '<div><span class="muted" style="font-size:12px">Resolution Rate:</span> <b style="font-size:13px;color:#059669">' + resolutionRate + '%</b></div>' +
+    '</div>' +
+  '</div>';
+}
+
+function renderDashDonutChart(priList) {
+  if (!priList || !priList.length) return '<div class="muted" style="padding:20px;text-align:center">No priority data</div>';
+  var total = priList.reduce(function (acc, x) { return acc + (x.count || 0); }, 0);
+  if (total === 0) total = 1;
+
+  var r = 40;
+  var c = 2 * Math.PI * r; // ~251.327
+  var currentOffset = 0;
+
+  var pathsHtml = priList.map(function (item) {
+    var fraction = (item.count || 0) / total;
+    var dash = (fraction * c).toFixed(2);
+    var space = (c - dash).toFixed(2);
+    var offset = (-currentOffset).toFixed(2);
+    currentOffset += (fraction * c);
+    return '<circle cx="50" cy="50" r="' + r + '" fill="transparent" ' +
+      'stroke="' + item.color + '" stroke-width="14" ' +
+      'stroke-dasharray="' + dash + ' ' + space + '" ' +
+      'stroke-dashoffset="' + offset + '">' +
+      '<title>' + esc(item.label) + ': ' + item.count + ' (' + item.pct + '%)</title>' +
+    '</circle>';
+  }).join('');
+
+  var legendHtml = priList.map(function (item) {
+    return '<div class="dash-donut-item">' +
+      '<div class="dash-donut-item-left">' +
+        '<span class="dash-donut-dot" style="background:' + item.color + '"></span>' +
+        '<span>' + esc(item.label) + '</span>' +
+      '</div>' +
+      '<div class="dash-donut-item-right">' +
+        '<b style="color:var(--ink)">' + item.count + '</b>' +
+        '<span style="font-size:12px;color:var(--ink2);width:45px;text-align:right">(' + item.pct + '%)</span>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+
+  return '<div class="dash-donut-layout">' +
+    '<div class="dash-donut-svg-wrap">' +
+      '<svg viewBox="0 0 100 100" style="transform:rotate(-90deg);width:100%;height:100%">' +
+        pathsHtml +
+      '</svg>' +
+      '<div class="dash-donut-center">' +
+        '<div class="dash-donut-center-num">' + (total === 1 && priList[0].count === 0 ? 0 : total) + '</div>' +
+        '<div class="dash-donut-center-lbl">Total</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="dash-donut-legend">' + legendHtml + '</div>' +
+  '</div>';
+}
+
+function setDashAgeingView(mode) {
+  window.DASH_AGEING_VIEW = mode;
+  var bar = document.getElementById('dash_ageing_custom_bar');
+  if (bar) bar.style.display = (mode === 'custom') ? 'flex' : 'none';
+
+  var btns = document.querySelectorAll('.dash-ageing-btn');
+  btns.forEach(function (b) {
+    b.classList.toggle('active', b.getAttribute('data-mode') === mode);
+  });
+  if (mode === 'week') {
+    onDashTimePresetChange('7d');
+  } else if (mode === 'month') {
+    onDashTimePresetChange('30d');
+  } else if (mode === 'custom') {
+    var now = new Date();
+    var fEl = document.getElementById('ageing_date_from');
+    var tEl = document.getElementById('ageing_date_to');
+    if (fEl && !fEl.value) {
+      var d30 = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+      fEl.value = DASH_FILT.date_from || formatISODate(d30);
+    }
+    if (tEl && !tEl.value) {
+      tEl.value = DASH_FILT.date_to || formatISODate(now);
+    }
+    setTimeout(function () { openCalendarPicker('ageing_date_from'); }, 60);
+  }
+}
+
+function applyAgeingCustomDates() {
+  var f = (document.getElementById('ageing_date_from') ? document.getElementById('ageing_date_from').value : '') || '';
+  var t = (document.getElementById('ageing_date_to') ? document.getElementById('ageing_date_to').value : '') || '';
+  if (!f && !t) {
+    toast('Please select at least one date from the calendar');
+    return;
+  }
+  DASH_FILT.date_preset = 'custom';
+  DASH_FILT.date_from = f;
+  DASH_FILT.date_to = t;
+  window.DASH_AGEING_VIEW = 'custom';
+
+  var df = document.getElementById('dash_from');
+  var dt = document.getElementById('dash_to');
+  var dtSel = document.getElementById('dash_time');
+  if (df) df.value = f;
+  if (dt) dt.value = t;
+  if (dtSel) dtSel.value = 'custom';
+  var customWrap = document.getElementById('dash_custom_dates');
+  if (customWrap) customWrap.style.display = 'flex';
+
+  var tf = document.getElementById('trend_date_from');
+  var tt = document.getElementById('trend_date_to');
+  if (tf) tf.value = f;
+  if (tt) tt.value = t;
+
+  saveState();
+  load(true);
+}
+
+function renderDashAgeing(ageingList) {
+  if (!ageingList || !ageingList.length) return '<div class="muted">No ticket ageing data</div>';
+  return '<div class="dash-ageing-grid">' +
+    ageingList.map(function (item) {
+      return '<div class="dash-ageing-row">' +
+        '<div class="dash-ageing-bracket">' + esc(item.bracket) + '</div>' +
+        '<div class="dash-ageing-bar-bg" title="' + esc(item.desc) + '">' +
+          '<div class="dash-ageing-bar-fill" style="width:' + item.pct + '%;background:' + item.color + '"></div>' +
+        '</div>' +
+        '<div class="dash-ageing-stats">' +
+          '<span>' + item.count + '</span> <span style="font-size:12px;color:var(--ink2);font-weight:normal">(' + item.pct + '%)</span>' +
+        '</div>' +
+      '</div>';
+    }).join('') +
+  '</div>';
+}
+
+function setDashAppRoleView(mode) {
+  window.DASH_APPROLE_VIEW = mode;
+  var el = document.getElementById('dash_approle_container');
+  if (el && DASH) el.innerHTML = renderDashAppRoleContent(DASH, mode);
+  var bApp = document.getElementById('dash_app_btn');
+  var bRole = document.getElementById('dash_role_btn');
+  if (bApp) bApp.classList.toggle('active', mode === 'app');
+  if (bRole) bRole.classList.toggle('active', mode === 'role');
+}
+
+function renderDashAppRoleContent(d, mode) {
+  var list = mode === 'app' ? (d.by_application || []) : (d.by_role || []);
+  if (!list.length) return '<div class="muted" style="padding:20px;text-align:center">No records</div>';
+
+  return '<div style="display:flex;flex-direction:column;gap:10px">' +
+    list.map(function (item) {
+      var color = mode === 'app' ? (item.code === 'CALL' ? '#6366F1' : '#059669') : '#8B5CF6';
+      return '<div style="padding:8px 12px;background:#F9FAFB;border:1px solid #F3F4F6;border-radius:8px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+          '<span style="font-size:13px;font-weight:700;color:var(--ink)">' + esc(item.name) + '</span>' +
+          '<div><b style="font-size:13.5px;color:var(--ink)">' + item.count + '</b> <span style="font-size:12px;color:var(--ink2)">(' + item.pct + '%)</span></div>' +
+        '</div>' +
+        '<div style="height:6px;background:#E5E7EB;border-radius:3px;overflow:hidden">' +
+          '<div style="width:' + item.pct + '%;height:100%;background:' + color + ';border-radius:3px"></div>' +
+        '</div>' +
+      '</div>';
+    }).join('') +
+  '</div>';
+}
+
+function renderDashCategory(catList) {
+  if (!catList || !catList.length) return '<tr><td colspan="4" style="text-align:center;color:var(--ink2);padding:20px">No category records</td></tr>';
+
+  return catList.map(function (r) {
+    var catLabel = (META && META.routing && META.routing[r.category]) ? META.routing[r.category].label : (r.category || 'General');
+    var pct = r.pct || 0;
+    return '<tr>' +
+      '<td><b>' + esc(catLabel) + '</b></td>' +
+      '<td><b>' + (r.n || 0) + '</b></td>' +
+      '<td>' + (r.open_n > 0 ? ('<span class="pill p-crit" style="font-size:11.5px">' + r.open_n + ' Open</span>') : '<span class="pill p-ok" style="font-size:11.5px">0</span>') + '</td>' +
+      '<td>' +
+        '<div style="display:flex;align-items:center;gap:8px">' +
+          '<div style="flex:1;min-width:60px;height:8px;background:#F3F4F6;border-radius:4px;overflow:hidden">' +
+            '<div style="width:' + pct + '%;height:100%;background:var(--pur);border-radius:4px"></div>' +
+          '</div>' +
+          '<span style="font-size:12px;font-weight:700;color:var(--ink);width:40px;text-align:right">' + pct + '%</span>' +
+        '</div>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function renderDashDistrictTable(distRows) {
+  if (!distRows || !distRows.length) return '<tr><td colspan="7" style="text-align:center;color:var(--ink2);padding:20px">No district records</td></tr>';
+
+  return distRows.map(function (d) {
+    var breachBadge = d.breaches > 0 ?
+      ('<span class="pill p-crit" style="font-size:11.5px">' + d.breaches + ' Breached</span>') :
+      ('<span class="pill p-ok" style="font-size:11.5px">0 Breaches</span>');
+
+    return '<tr class="dash-district-tr" data-dist="' + esc(d.district).toLowerCase() + '">' +
+      '<td><a href="javascript:void(0)" onclick="viewDistrictTickets(\'' + esc(d.district) + '\')" style="font-weight:700;color:var(--pur);text-decoration:none" title="View all tickets in ' + esc(d.district) + '">' + esc(d.district) + '</a></td>' +
+      '<td><b>' + d.total + '</b></td>' +
+      '<td>' + (d.open > 0 ? ('<span class="pill p-open" style="font-size:11.5px">' + d.open + '</span>') : '0') + '</td>' +
+      '<td>' + (d.resolved > 0 ? ('<span class="pill p-ok" style="font-size:11.5px">' + d.resolved + '</span>') : '0') + '</td>' +
+      '<td>' + (d.pending > 0 ? ('<span class="pill p-warn" style="font-size:11.5px">' + d.pending + '</span>') : '0') + '</td>' +
+      '<td>' + breachBadge + '</td>' +
+      '<td>' +
+        '<div style="display:flex;gap:6px;align-items:center">' +
+          '<button class="btn sm" onclick="viewDistrictTickets(\'' + esc(d.district) + '\')" title="View ' + esc(d.district) + ' tickets in Queue" style="white-space:nowrap;padding:4px 10px;font-size:11.5px">View Tickets</button>' +
+          '<button class="btn sm o" onclick="filterDashByDistrict(\'' + esc(d.district) + '\')" title="Filter dashboard view to ' + esc(d.district) + '" style="white-space:nowrap;padding:4px 8px;font-size:11.5px">Filter Dash</button>' +
+        '</div>' +
+      '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function filterDashDistrictTable(query) {
+  var q = (query || '').toLowerCase().trim();
+  var rows = document.querySelectorAll('.dash-district-tr');
+  rows.forEach(function (r) {
+    var name = r.getAttribute('data-dist') || '';
+    r.style.display = (!q || name.indexOf(q) !== -1) ? '' : 'none';
+  });
+}
+
+function viewDistrictTickets(distName) {
+  TAB = 'queue';
+  FILT.status = '';
+  FILT.scope = '';
+  FILT.mmu_vehicle = '';
+  FILT.district = (distName === 'Unassigned District') ? 'Unassigned' : distName;
+  FILT.district_id = '';
+  FILT.q = '';
+  FILT.priority = '';
+  FILT.category = '';
+  FILT.date_from = DASH_FILT.date_from || '';
+  FILT.date_to = DASH_FILT.date_to || '';
+  FILT.page_size = 50;
+  FILT.page = 1;
+  saveState();
+  render();
+  load(true);
+}
+
+function filterDashByDistrict(distName) {
+  var dVal = (distName === 'Unassigned District') ? '__unassigned__' : distName;
+  DASH_FILT.district = dVal;
+  var sel = document.getElementById('dash_dist');
+  if (sel) {
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value.toLowerCase() === dVal.toLowerCase()) {
+        sel.selectedIndex = i;
+        found = true;
+        break;
+      }
+    }
+    if (!found && dVal) {
+      var opt = document.createElement('option');
+      opt.value = dVal;
+      opt.textContent = distName;
+      opt.selected = true;
+      sel.appendChild(opt);
+    }
+  }
+  applyDashFilters();
+}
+
+function setDashActivityFilter(filterType) {
+  window.DASH_ACTIVITY_FILTER = filterType;
+  var el = document.getElementById('dash_activity_feed_container');
+  if (el && DASH) el.innerHTML = renderDashActivitiesContent(DASH.recent_activities || [], filterType);
+  var chips = document.querySelectorAll('.dash-activity-chip');
+  chips.forEach(function (c) {
+    c.classList.toggle('active', c.getAttribute('data-filter') === filterType);
+  });
+}
+
+function renderDashActivitiesContent(acts, filterType) {
+  if (!acts || !acts.length) return '<div class="muted" style="padding:24px;text-align:center">No recent activities logged</div>';
+
+  var filtered = acts.filter(function (a) {
+    if (filterType === 'all') return true;
+    var act = (a.action || '').toUpperCase();
+    var pri = (a.priority || '').toUpperCase();
+    if (filterType === 'p1_p2') return pri === 'P1' || pri === 'P2';
+    if (filterType === 'breach') return act.indexOf('BREACH') !== -1;
+    if (filterType === 'escalate') return act.indexOf('ESCALAT') !== -1;
+    if (filterType === 'resolved') return act.indexOf('RESOLV') !== -1 || act.indexOf('CONFIRM') !== -1;
+    if (filterType === 'status') return act.indexOf('STATUS') !== -1 || act === 'ASSIGNED' || act === 'CREATED';
+    return true;
+  });
+
+  if (!filtered.length) {
+    return '<div class="muted" style="padding:24px;text-align:center">No events match filter "' + esc(filterType) + '"</div>';
+  }
+
+  return filtered.map(function (a) {
+    var act = (a.action || '').toUpperCase();
+    var badgeClass = 'badge-info';
+    var badgeLabel = a.action || 'EVENT';
+
+    if (act.indexOf('BREACH') !== -1) { badgeClass = 'badge-crit'; badgeLabel = 'SLA BREACH'; }
+    else if (act.indexOf('ESCALAT') !== -1) { badgeClass = 'badge-esc'; badgeLabel = 'ESCALATED'; }
+    else if (act.indexOf('RESOLV') !== -1 || act.indexOf('CONFIRM') !== -1) { badgeClass = 'badge-ok'; badgeLabel = 'RESOLVED'; }
+    else if (act === 'CREATED' || act === 'NEW') { badgeClass = 'badge-new'; badgeLabel = 'NEW TICKET'; }
+    else if (act === 'ASSIGNED') { badgeClass = 'badge-warn'; badgeLabel = 'ASSIGNED'; }
+
+    var timeStr = a.at ? (formatDT(a.at) || a.at) : '';
+
+    return '<div class="dash-activity-item">' +
+      '<span class="dash-activity-badge ' + badgeClass + '">' + esc(badgeLabel) + '</span>' +
+      '<div class="dash-activity-content">' +
+        '<div class="dash-activity-title">' +
+          '<div>' +
+            '<a class="dash-activity-tlink" onclick="openT(' + a.ticket_id + ')" title="Open ticket details">' + esc(a.ticket_no) + '</a> ' +
+            (a.priority ? ('<span class="pill ' + (a.priority === 'P1' ? 'p-crit' : 'p-warn') + '" style="font-size:11px;padding:1px 6px;margin-left:4px">' + esc(a.priority) + '</span>') : '') +
+            (a.district ? (' <span class="muted" style="font-size:12px">&middot; ' + esc(a.district) + '</span>') : '') +
+            (a.mmu_vehicle ? (' <span class="muted" style="font-size:12px">(' + esc(a.mmu_vehicle) + ')</span>') : '') +
+          '</div>' +
+          '<div class="dash-activity-time">' + esc(timeStr) + '</div>' +
+        '</div>' +
+        '<div style="color:var(--ink);margin-top:3px">' + esc(a.detail || '') + '</div>' +
+        '<div style="font-size:11.5px;color:var(--ink2);margin-top:4px">' +
+          'Actor: <b>' + esc(a.actor || 'System') + '</b>' + (a.actor_role ? (' (' + esc(a.actor_role) + ')') : '') +
+        '</div>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
 function viewDash() {
   if (!DASH) return '<div class="card"><div class="empty">Loading daily monitoring…</div></div>';
-  var t = DASH.today || {}, k = DASH.kpi || {};
+  var t = DASH.today || {}, k = DASH.kpi || {}, kc = DASH.kpi_cards || {};
 
   var timeOptions = [
     { id: '', label: 'Today (Default)' },
@@ -1891,12 +2538,22 @@ function viewDash() {
 
   var hasActiveFilters = !!(DASH_FILT.district || DASH_FILT.team || DASH_FILT.mmu_vehicle || (DASH_FILT.date_preset && DASH_FILT.date_preset !== 'today') || DASH_FILT.date_from);
 
-  var kpi = function (n, l, c) {
-    return '<div class="kpi">' +
-      '<div class="n" style="color:' + (c || 'var(--pur)') + '">' + esc(n == null ? '—' : n) + '</div>' +
-      '<div class="l">' + esc(l) + '</div>' +
+  var emptyFilterNoticeHtml = '';
+  var hasDateFilter = !!(DASH_FILT.date_from || DASH_FILT.date_to || (DASH_FILT.date_preset && DASH_FILT.date_preset !== 'all' && DASH_FILT.date_preset !== ''));
+  var isZeroTotal = (kc.total_tickets === 0 || (kc.total_tickets == null && t.tickets === 0));
+  if (hasDateFilter && isZeroTotal) {
+    var rangeDesc = (DASH_FILT.date_from && DASH_FILT.date_to) ? (esc(DASH_FILT.date_from) + ' to ' + esc(DASH_FILT.date_to)) : (esc(DASH_FILT.date_preset || 'selected range'));
+    emptyFilterNoticeHtml = '<div style="background:#FFFBEB;border:1px solid #FDE68A;color:#92400E;padding:12px 18px;border-radius:10px;margin-bottom:18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>' +
+        '<span style="font-size:13px"><strong>No tickets found for selected dates: ' + rangeDesc + '</strong> (Department: <strong>' + esc(DASH_FILT.team || 'All Departments') + '</strong>). The logged tickets in the system are between <strong>25 Aug 2026</strong> and <strong>07 Sep 2026</strong>.</span>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px">' +
+        '<button type="button" class="qf-btn qf-btn-primary" style="height:32px;padding:0 14px;font-size:12px" onclick="onDashTimePresetChange(\'30d\')">View Last 30 Days</button>' +
+        '<button type="button" class="qf-btn qf-btn-outline" style="height:32px;padding:0 12px;font-size:12px" onclick="clearDashFilters()">Reset All Filters</button>' +
+      '</div>' +
     '</div>';
-  };
+  }
 
   var attn = function (n, l, c, onclick) {
     return '<button class="c" onclick="' + onclick + '">' +
@@ -1921,19 +2578,240 @@ function viewDash() {
       '</tbody></table></div>';
   };
 
-  var ticketsLabel = (DASH_FILT.date_from || DASH_FILT.date_to) ? 'Tickets in window' : 'Tickets today';
-  var closedLabel = (DASH_FILT.date_from || DASH_FILT.date_to) ? 'Closed in window' : 'Closed today';
+  // Section A: 12 Dashboard KPI Cards
+  var kpi12Html = '<div class="dash-kpi-grid">' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'all\',\'\',\'\')" style="cursor:pointer" title="View all tickets">' +
+      '<div class="dash-num" style="color:#4F46E5">' + (kc.total_tickets != null ? kc.total_tickets : 0) + '</div>' +
+      '<div class="dash-lbl">1. Total Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'open\',\'\',\'\')" style="cursor:pointer" title="View new & intake tickets">' +
+      '<div class="dash-num" style="color:#2563EB">' + (kc.new_tickets != null ? kc.new_tickets : 0) + '</div>' +
+      '<div class="dash-lbl">2. New Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'open\',\'\',\'\')" style="cursor:pointer" title="View in progress tickets">' +
+      '<div class="dash-num" style="color:#0284C7">' + (kc.in_progress != null ? kc.in_progress : 0) + '</div>' +
+      '<div class="dash-lbl">3. In Progress</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'PENDING\',\'\',\'\')" style="cursor:pointer" title="View pending tickets">' +
+      '<div class="dash-num" style="color:#D97706">' + (kc.pending_tickets != null ? kc.pending_tickets : 0) + '</div>' +
+      '<div class="dash-lbl">4. Pending Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'RESOLVED\',\'\',\'\')" style="cursor:pointer" title="View resolved tickets">' +
+      '<div class="dash-num" style="color:#059669">' + (kc.resolved_tickets != null ? kc.resolved_tickets : 0) + '</div>' +
+      '<div class="dash-lbl">5. Resolved Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'CLOSED\',\'\',\'\')" style="cursor:pointer" title="View closed tickets">' +
+      '<div class="dash-num" style="color:#10B981">' + (kc.closed_tickets != null ? kc.closed_tickets : 0) + '</div>' +
+      '<div class="dash-lbl">6. Closed Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'open\',\'\',\'P1\')" style="cursor:pointer" title="View P1 Critical tickets">' +
+      '<div class="dash-num" style="color:#DC2626">' + (kc.p1_critical != null ? kc.p1_critical : 0) + '</div>' +
+      '<div class="dash-lbl">7. P1 – Critical Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'open\',\'\',\'P2\')" style="cursor:pointer" title="View P2 High Priority tickets">' +
+      '<div class="dash-num" style="color:#EA580C">' + (kc.p2_high != null ? kc.p2_high : 0) + '</div>' +
+      '<div class="dash-lbl">8. P2 – High Priority Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'open\',\'risk\',\'\')" style="cursor:pointer" title="View SLA At Risk tickets">' +
+      '<div class="dash-num" style="color:#B45309">' + (kc.sla_at_risk != null ? kc.sla_at_risk : 0) + '</div>' +
+      '<div class="dash-lbl">9. SLA at Risk</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'open\',\'breach\',\'\')" style="cursor:pointer" title="View SLA Breaches">' +
+      '<div class="dash-num" style="color:#B91C1C">' + (kc.sla_breaches != null ? kc.sla_breaches : 0) + '</div>' +
+      '<div class="dash-lbl">10. SLA Breaches</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" onclick="attnGoto(\'open\',\'escalated\',\'\')" style="cursor:pointer" title="View Escalated tickets">' +
+      '<div class="dash-num" style="color:#C026D3">' + (kc.escalated_tickets != null ? kc.escalated_tickets : 0) + '</div>' +
+      '<div class="dash-lbl">11. Escalated Tickets</div>' +
+    '</div>' +
+    '<div class="dash-kpi-card" title="Overall SLA Compliance rate">' +
+      '<div class="dash-num" style="color:#059669">' + (kc.sla_compliance_pct != null ? kc.sla_compliance_pct : 100) + '%</div>' +
+      '<div class="dash-lbl">12. SLA Compliance (%)</div>' +
+    '</div>' +
+  '</div>';
+
+  var now = new Date();
+  var defaultTo = formatISODate(now);
+  var d30 = new Date(now.getTime() - 30 * 24 * 3600 * 1000);
+  var defaultFrom = formatISODate(d30);
+  var activeFrom = DASH_FILT.date_from || defaultFrom;
+  var activeTo = DASH_FILT.date_to || defaultTo;
+
+  // Section B & C: Trend Analysis + Priority Donut Chart
+  var trendAndDonutHtml = '<div class="grid2" style="margin-bottom:20px">' +
+    '<div class="dash-card">' +
+      '<div class="dash-card-header">' +
+        '<div>' +
+          '<div class="dash-card-title">Ticket-Wise Trend Analysis</div>' +
+          '<div class="dash-card-subtitle">Volume of tickets created vs resolved over time</div>' +
+        '</div>' +
+        '<div class="dash-switcher">' +
+          '<button type="button" class="dash-switcher-btn dash-trend-btn ' + (window.DASH_TREND_VIEW === 'week' ? 'active' : '') + '" data-mode="week" onclick="setDashTrendView(\'week\')">Week</button>' +
+          '<button type="button" class="dash-switcher-btn dash-trend-btn ' + (window.DASH_TREND_VIEW === 'month' ? 'active' : '') + '" data-mode="month" onclick="setDashTrendView(\'month\')">Month</button>' +
+          '<button type="button" class="dash-switcher-btn dash-trend-btn ' + (window.DASH_TREND_VIEW === 'custom' ? 'active' : '') + '" data-mode="custom" onclick="setDashTrendView(\'custom\')">Custom Date Range</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="dash_trend_custom_bar" class="dash-card-custom-dates-bar" style="display:' + (window.DASH_TREND_VIEW === 'custom' ? 'flex' : 'none') + '">' +
+        '<div class="dash-custom-bar-inner">' +
+          '<span class="dash-custom-bar-label">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+            'Custom Date Range:' +
+          '</span>' +
+          '<div class="dash-inline-date-group">' +
+            '<label class="dash-inline-date-lbl">From</label>' +
+            '<div class="dash-date-input-wrap">' +
+              '<input id="trend_date_from" type="date" class="qf-input dash-calendar-input" value="' + esc(activeFrom) + '" onclick="openCalendarPicker(\'trend_date_from\')" onchange="onTrendDateChange()">' +
+              '<button type="button" class="dash-calendar-btn" onclick="openCalendarPicker(\'trend_date_from\')" title="Select Date From Calendar">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="dash-inline-date-group">' +
+            '<label class="dash-inline-date-lbl">To</label>' +
+            '<div class="dash-date-input-wrap">' +
+              '<input id="trend_date_to" type="date" class="qf-input dash-calendar-input" value="' + esc(activeTo) + '" onclick="openCalendarPicker(\'trend_date_to\')" onchange="onTrendDateChange()">' +
+              '<button type="button" class="dash-calendar-btn" onclick="openCalendarPicker(\'trend_date_to\')" title="Select Date To Calendar">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
+          '<button type="button" class="qf-btn qf-btn-primary" style="height:32px;padding:0 14px;font-size:12px;border-radius:6px" onclick="applyTrendCustomDates()">Apply Range</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="dash_trend_chart_container">' + renderDashTrendChartContent(DASH.trend || [], window.DASH_TREND_VIEW) + '</div>' +
+    '</div>' +
+    '<div class="dash-card">' +
+      '<div class="dash-card-header">' +
+        '<div>' +
+          '<div class="dash-card-title">Priority Distribution</div>' +
+          '<div class="dash-card-subtitle">Ticket distribution by priority (Count &amp; %)</div>' +
+        '</div>' +
+      '</div>' +
+      renderDashDonutChart(DASH.priority_distribution || []) +
+    '</div>' +
+  '</div>';
+
+  // Section D & E: Ticket Ageing + Application / Role-Wise Tickets
+  var ageingAndAppRoleHtml = '<div class="grid2" style="margin-bottom:20px">' +
+    '<div class="dash-card">' +
+      '<div class="dash-card-header">' +
+        '<div>' +
+          '<div class="dash-card-title">Ticket Ageing</div>' +
+          '<div class="dash-card-subtitle">Number of tickets pending based on ageing period</div>' +
+        '</div>' +
+        '<div class="dash-switcher">' +
+          '<button type="button" class="dash-switcher-btn dash-ageing-btn ' + (window.DASH_AGEING_VIEW === 'week' ? 'active' : '') + '" data-mode="week" onclick="setDashAgeingView(\'week\')">Week</button>' +
+          '<button type="button" class="dash-switcher-btn dash-ageing-btn ' + (window.DASH_AGEING_VIEW === 'month' ? 'active' : '') + '" data-mode="month" onclick="setDashAgeingView(\'month\')">Month</button>' +
+          '<button type="button" class="dash-switcher-btn dash-ageing-btn ' + (window.DASH_AGEING_VIEW === 'custom' ? 'active' : '') + '" data-mode="custom" onclick="setDashAgeingView(\'custom\')">Custom Date Range</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="dash_ageing_custom_bar" class="dash-card-custom-dates-bar" style="display:' + (window.DASH_AGEING_VIEW === 'custom' ? 'flex' : 'none') + '">' +
+        '<div class="dash-custom-bar-inner">' +
+          '<span class="dash-custom-bar-label">' +
+            '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+            'Custom Date Range:' +
+          '</span>' +
+          '<div class="dash-inline-date-group">' +
+            '<label class="dash-inline-date-lbl">From</label>' +
+            '<div class="dash-date-input-wrap">' +
+              '<input id="ageing_date_from" type="date" class="qf-input dash-calendar-input" value="' + esc(activeFrom) + '" onclick="openCalendarPicker(\'ageing_date_from\')">' +
+              '<button type="button" class="dash-calendar-btn" onclick="openCalendarPicker(\'ageing_date_from\')" title="Select Date From Calendar">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="dash-inline-date-group">' +
+            '<label class="dash-inline-date-lbl">To</label>' +
+            '<div class="dash-date-input-wrap">' +
+              '<input id="ageing_date_to" type="date" class="qf-input dash-calendar-input" value="' + esc(activeTo) + '" onclick="openCalendarPicker(\'ageing_date_to\')">' +
+              '<button type="button" class="dash-calendar-btn" onclick="openCalendarPicker(\'ageing_date_to\')" title="Select Date To Calendar">' +
+                '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+              '</button>' +
+            '</div>' +
+          '</div>' +
+          '<button type="button" class="qf-btn qf-btn-primary" style="height:32px;padding:0 14px;font-size:12px;border-radius:6px" onclick="applyAgeingCustomDates()">Apply Range</button>' +
+        '</div>' +
+      '</div>' +
+      renderDashAgeing(DASH.ticket_ageing || []) +
+    '</div>' +
+    '<div class="dash-card">' +
+      '<div class="dash-card-header">' +
+        '<div>' +
+          '<div class="dash-card-title">Application / Role-Wise Tickets</div>' +
+          '<div class="dash-card-subtitle">Ticket distribution by application intake and user roles</div>' +
+        '</div>' +
+        '<div class="dash-switcher">' +
+          '<button type="button" id="dash_app_btn" class="dash-switcher-btn ' + (window.DASH_APPROLE_VIEW === 'app' ? 'active' : '') + '" onclick="setDashAppRoleView(\'app\')">Application</button>' +
+          '<button type="button" id="dash_role_btn" class="dash-switcher-btn ' + (window.DASH_APPROLE_VIEW === 'role' ? 'active' : '') + '" onclick="setDashAppRoleView(\'role\')">User Role</button>' +
+        '</div>' +
+      '</div>' +
+      '<div id="dash_approle_container">' + renderDashAppRoleContent(DASH, window.DASH_APPROLE_VIEW) + '</div>' +
+    '</div>' +
+  '</div>';
+
+  // Section F & G: Category-Wise Tickets & District-Wise Tickets
+  var catAndDistHtml = '<div class="grid2" style="margin-bottom:20px">' +
+    '<div class="dash-card">' +
+      '<div class="dash-card-header">' +
+        '<div>' +
+          '<div class="dash-card-title">Category-Wise Tickets</div>' +
+          '<div class="dash-card-subtitle">Ticket distribution by category (Count &amp; %)</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="overflow-x:auto"><table>' +
+        '<thead><tr><th>Category</th><th>Total Tickets</th><th>Open</th><th>Percentage (%)</th></tr></thead>' +
+        '<tbody>' + renderDashCategory(DASH.by_category || []) + '</tbody>' +
+      '</table></div>' +
+    '</div>' +
+    '<div class="dash-card">' +
+      '<div class="dash-card-header">' +
+        '<div>' +
+          '<div class="dash-card-title">District-Wise Tickets</div>' +
+          '<div class="dash-card-subtitle">Statewide MMU surveillance across districts</div>' +
+        '</div>' +
+        '<div><input type="text" class="qf-input" style="height:32px;font-size:12px;width:160px;padding:0 8px" placeholder="Search district…" oninput="filterDashDistrictTable(this.value)"></div>' +
+      '</div>' +
+      '<div style="overflow-x:auto;max-height:360px"><table>' +
+        '<thead><tr><th>District Name</th><th>Total Tickets</th><th>Open</th><th>Resolved</th><th>Pending</th><th>SLA Breaches</th><th>Action</th></tr></thead>' +
+        '<tbody id="dash_district_tbody">' + renderDashDistrictTable(DASH.by_district || []) + '</tbody>' +
+      '</table></div>' +
+    '</div>' +
+  '</div>';
+
+  // Section H: Live Alerts & Recent Activities
+  var liveActivitiesHtml = '<div class="dash-card" style="margin-bottom:20px">' +
+    '<div class="dash-card-header">' +
+      '<div>' +
+        '<div class="dash-card-title">' +
+          '<span>Live Alerts &amp; Recent Activities</span>' +
+          '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;color:#059669;background:#ECFDF5;border:1px solid #A7F3D0;padding:2px 8px;border-radius:12px"><span style="width:6px;height:6px;border-radius:50%;background:#10B981"></span> Live Feed</span>' +
+        '</div>' +
+        '<div class="dash-card-subtitle">Real-time alerts, critical priority updates, SLA warnings, escalations, assignments, and ticket status changes</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="dash-activity-chips">' +
+      '<button type="button" class="dash-activity-chip ' + (window.DASH_ACTIVITY_FILTER === 'all' ? 'active' : '') + '" data-filter="all" onclick="setDashActivityFilter(\'all\')">All Activities</button>' +
+      '<button type="button" class="dash-activity-chip ' + (window.DASH_ACTIVITY_FILTER === 'p1_p2' ? 'active' : '') + '" data-filter="p1_p2" onclick="setDashActivityFilter(\'p1_p2\')">P1/P2 Critical &amp; High</button>' +
+      '<button type="button" class="dash-activity-chip ' + (window.DASH_ACTIVITY_FILTER === 'breach' ? 'active' : '') + '" data-filter="breach" onclick="setDashActivityFilter(\'breach\')">SLA Breaches</button>' +
+      '<button type="button" class="dash-activity-chip ' + (window.DASH_ACTIVITY_FILTER === 'escalate' ? 'active' : '') + '" data-filter="escalate" onclick="setDashActivityFilter(\'escalate\')">Escalations</button>' +
+      '<button type="button" class="dash-activity-chip ' + (window.DASH_ACTIVITY_FILTER === 'resolved' ? 'active' : '') + '" data-filter="resolved" onclick="setDashActivityFilter(\'resolved\')">Resolutions</button>' +
+      '<button type="button" class="dash-activity-chip ' + (window.DASH_ACTIVITY_FILTER === 'status' ? 'active' : '') + '" data-filter="status" onclick="setDashActivityFilter(\'status\')">Status Changes</button>' +
+    '</div>' +
+    '<div id="dash_activity_feed_container" class="dash-activity-feed">' +
+      renderDashActivitiesContent(DASH.recent_activities || [], window.DASH_ACTIVITY_FILTER) +
+    '</div>' +
+  '</div>';
 
   return '<div class="card" style="margin-bottom:20px;padding:16px 20px;border-radius:12px;background:#fff;border:1px solid #E5E7EB;box-shadow:0 1px 3px rgba(0,0,0,0.04)">' +
     '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:1px solid #F3F4F6;flex-wrap:wrap;gap:10px">' +
       '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px">' +
-        '<span>📊 Daily Monitoring &amp; Operational Surveillance</span>' +
+        '<span>Daily Monitoring &amp; Operational Surveillance</span>' +
         '<span style="display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;color:#059669;background:#ECFDF5;border:1px solid #A7F3D0;padding:2px 8px;border-radius:12px"><span style="width:6px;height:6px;border-radius:50%;background:#10B981"></span> Live</span>' +
         (hasActiveFilters ? '<span style="font-size:11px;color:var(--pur);background:#F5F3FF;border:1px solid #DDD6FE;padding:2px 8px;border-radius:12px;font-weight:600">Active Filters</span>' : '') +
       '</div>' +
       '<div style="display:flex;align-items:center;gap:8px">' +
         '<button class="qf-btn qf-btn-export" onclick="exportDash()" title="Export filtered dashboard summary report to Excel" style="height:34px;padding:0 14px;font-size:12.5px">' +
-          '<span style="margin-right:6px">📥</span> Export Summary (Excel)' +
+          '<span style="margin-right:6px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></span> Export Summary (Excel)' +
         '</button>' +
       '</div>' +
     '</div>' +
@@ -1974,21 +2852,29 @@ function viewDash() {
       '</div>' +
     '</div>' +
 
-    '<div id="dash_custom_dates" style="display:' + ((DASH_FILT.date_preset === 'custom' || (DASH_FILT.date_from && !DASH_FILT.date_preset)) ? 'flex' : 'none') + ';gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid #F3F4F6;align-items:flex-end;flex-wrap:wrap">' +
-      '<div class="qf-fld" style="flex:1;min-width:150px;max-width:220px">' +
-        '<label class="qf-label">Date From</label>' +
-        '<input id="dash_from" class="qf-input" type="date" value="' + esc(DASH_FILT.date_from || '') + '">' +
+    '<div id="dash_custom_dates" class="dash-custom-dates-bar" style="display:' + ((DASH_FILT.date_preset === 'custom' || (DASH_FILT.date_from && !DASH_FILT.date_preset)) ? 'flex' : 'none') + ';gap:14px;margin-top:14px;padding-top:14px;border-top:1px solid #F3F4F6;align-items:flex-end;flex-wrap:wrap">' +
+      '<div class="qf-fld" style="flex:1;min-width:160px;max-width:240px">' +
+        '<label class="qf-label">Date From (Calendar)</label>' +
+        '<div class="dash-date-input-wrap">' +
+          '<input id="dash_from" class="qf-input dash-calendar-input" type="date" value="' + esc(DASH_FILT.date_from || '') + '" onclick="openCalendarPicker(\'dash_from\')">' +
+          '<button type="button" class="dash-calendar-btn" onclick="openCalendarPicker(\'dash_from\')" title="Select Date From Calendar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg></button>' +
+        '</div>' +
       '</div>' +
-      '<div class="qf-fld" style="flex:1;min-width:150px;max-width:220px">' +
-        '<label class="qf-label">Date To</label>' +
-        '<input id="dash_to" class="qf-input" type="date" value="' + esc(DASH_FILT.date_to || '') + '">' +
+      '<div class="qf-fld" style="flex:1;min-width:160px;max-width:240px">' +
+        '<label class="qf-label">Date To (Calendar)</label>' +
+        '<div class="dash-date-input-wrap">' +
+          '<input id="dash_to" class="qf-input dash-calendar-input" type="date" value="' + esc(DASH_FILT.date_to || '') + '" onclick="openCalendarPicker(\'dash_to\')">' +
+          '<button type="button" class="dash-calendar-btn" onclick="openCalendarPicker(\'dash_to\')" title="Select Date To Calendar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg></button>' +
+        '</div>' +
       '</div>' +
-      '<button class="qf-btn qf-btn-primary" onclick="applyDashFilters()" style="height:38px;padding:0 16px">Apply Dates</button>' +
+      '<button class="qf-btn qf-btn-primary" onclick="applyDashFilters()" style="height:36px;padding:0 18px;margin-bottom:2px">Apply Dates</button>' +
     '</div>' +
   '</div>' +
+  emptyFilterNoticeHtml +
 
+  // Attention Required Grid
   '<div style="display:flex;align-items:center;justify-content:space-between;margin:20px 0 12px 2px">' +
-    '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">⚡ Attention Required</div>' +
+    '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">Attention Required</div>' +
     '<span style="font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:0.04em;text-transform:uppercase">Click card to view queue</span>' +
   '</div>' +
 
@@ -2004,41 +2890,39 @@ function viewDash() {
     attn(t.unassigned, 'Unassigned', "var(--org)", "attnGoto('open','unassigned','')") +
   '</div>' +
 
+  // Section A: 12 KPI Cards
   '<div style="display:flex;align-items:center;justify-content:space-between;margin:24px 0 12px 2px">' +
-    '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">📊 Performance Metrics &amp; SLA Adherence</div>' +
+    '<div style="font-size:15px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:6px">Dashboard KPI Cards</div>' +
+    '<span style="font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:0.04em;text-transform:uppercase">Operational benchmarks</span>' +
   '</div>' +
+  kpi12Html +
 
-  '<div class="kpis">' +
-    kpi(t.tickets, ticketsLabel) +
-    kpi(t.open, 'Open tickets') +
-    kpi(t.closed, closedLabel, 'var(--ok)') +
-    kpi(t.breached, 'TAT breached', 'var(--crit)') +
-    kpi(t.at_risk, 'At risk', 'var(--warn)') +
-    kpi(t.escalated, 'Escalated', 'var(--mag)') +
-  '</div>' +
+  // Section B & C: Trend Analysis + Priority Donut Chart
+  trendAndDonutHtml +
 
-  '<div class="kpis">' +
-    kpi(k.tat_compliance_pct == null ? '—' : k.tat_compliance_pct + '%', 'TAT compliance', 'var(--ok)') +
-    kpi(k.tat_breach_pct == null ? '—' : k.tat_breach_pct + '%', 'TAT breach %', 'var(--crit)') +
-    kpi(k.avg_ack_mins == null ? '—' : k.avg_ack_mins + 'm', 'Avg acknowledgement') +
-    kpi(k.avg_resolution_mins == null ? '—' : k.avg_resolution_mins + 'm', 'Avg resolution') +
-    kpi((k.escalation_pct == null ? '—' : k.escalation_pct + '%'), 'Escalation %', 'var(--mag)') +
-    kpi(k.closed_total == null ? '—' : k.closed_total, 'Closed (all time)') +
-  '</div>' +
+  // Section D & E: Ticket Ageing + Application / Role-Wise Tickets
+  ageingAndAppRoleHtml +
 
+  // Section F & G: Category-Wise Tickets & District-Wise Tickets
+  catAndDistHtml +
+
+  // Section H: Live Alerts & Recent Activities
+  liveActivitiesHtml +
+
+  // Chronic Equipment Watchdog
   (DASH.chronic_equipment && DASH.chronic_equipment.length ?
-    ('<div class="card" style="margin-bottom:14px;border-left:4px solid #DC2626">' +
+    ('<div class="card" style="margin-bottom:20px;border-left:4px solid #DC2626">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">' +
-        '<div><div style="font-weight:800;font-size:15px;color:#991B1B">⚠️ Chronic Failing Units Watchdog (≥ 3 Breakdowns in 30 Days)</div>' +
+        '<div><div style="font-weight:800;font-size:15px;color:#991B1B">Chronic Failing Units Watchdog (≥ 3 Breakdowns in 30 Days)</div>' +
         '<div class="muted" style="font-size:12px;margin-top:2px">Identifies high-failure analyzers and MMUs requiring manufacturer warranty replacement / root-cause overhaul.</div></div>' +
-        '<div class="pill-chronic" style="padding:4px 10px;font-size:12px">⚠️ ' + DASH.chronic_equipment.length + ' Chronic Unit' + (DASH.chronic_equipment.length === 1 ? '' : 's') + ' Flagged</div>' +
+        '<div class="pill-chronic" style="padding:4px 10px;font-size:12px">' + DASH.chronic_equipment.length + ' Chronic Unit' + (DASH.chronic_equipment.length === 1 ? '' : 's') + ' Flagged</div>' +
       '</div>' +
       '<div style="overflow-x:auto"><table><thead><tr><th>MMU Vehicle</th><th>District</th><th>Breakdowns (30d)</th><th>Open Status</th><th>Failing Issue Types</th><th>Last Breakdown</th><th>Action</th></tr></thead><tbody>' +
       DASH.chronic_equipment.map(function (c) {
         return '<tr>' +
           '<td><b>' + esc(c.mmu_vehicle) + '</b></td>' +
           '<td>' + esc(c.district || '—') + '</td>' +
-          '<td><span class="pill-chronic">⚠️ ' + esc(c.n) + ' times</span></td>' +
+          '<td><span class="pill-chronic">' + esc(c.n) + ' times</span></td>' +
           '<td>' + (c.open_n > 0 ? ('<span class="pill p-crit">' + c.open_n + ' Open</span>') : '<span class="pill p-ok">Resolved</span>') + '</td>' +
           '<td>' + esc((c.categories || '').split(',').map(function (cat) { return (META.routing[cat] || {}).label || cat; }).join(', ')) + '</td>' +
           '<td>' + esc(c.last_breakdown_at || '—') + '</td>' +
@@ -2047,8 +2931,8 @@ function viewDash() {
       }).join('') +
       '</tbody></table></div></div>') : '') +
 
+  // Other Departmental Tables
   '<div class="grid2">' +
-    tbl('Tickets by category', DASH.by_category, [['Category', function (r) { return (META.routing[r.category] || {}).label || r.category; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }]]) +
     tbl('Tickets by responsible team', DASH.by_team, [['Team', function (r) { return META.teams[r.team] || r.team; }], ['Total', function (r) { return r.n; }], ['Open', function (r) { return r.open_n; }], ['Breached', function (r) { return r.breach_n; }]]) +
     tbl('By status', DASH.by_status, [['Status', function (r) { return (r.status || '').replace(/_/g, ' '); }], ['Count', function (r) { return r.n; }]]) +
     tbl('Repeat issues by MMU', DASH.repeat_vehicles, [
@@ -2213,11 +3097,11 @@ function syncLTOutbox(manual) {
   if (SYNCING_OUTBOX) return;
   var list = getLTOutbox();
   if (!list.length) {
-    if (manual) toast('✨ Outbox is empty — all reports are synced');
+    if (manual) toast('Outbox is empty — all reports are synced');
     return;
   }
   if (!navigator.onLine) {
-    if (manual) toast('⚠️ Offline / No cellular signal. Will auto-sync when network returns.');
+    if (manual) toast('Offline / No cellular signal. Will auto-sync when network returns.');
     return;
   }
   SYNCING_OUTBOX = true;
@@ -2242,7 +3126,7 @@ function syncLTOutbox(manual) {
     removeLTOutboxItem(item.outbox_id);
     SYNCING_OUTBOX = false;
     playAlertSound('new');
-    toast('✅ Outbox Ticket ' + d.ticket_no + ' synced successfully!');
+    toast('Outbox Ticket ' + d.ticket_no + ' synced successfully!');
     if (TAB === 'mine') loadLTMine();
     else render();
     if (getLTOutbox().length > 0) {
@@ -2347,7 +3231,7 @@ function renderLTPhotosPreview() {
     html += '<div class="photo-thumb-card">' +
       '<img src="' + p.dataUrl + '" alt="Photo preview">' +
       '<button type="button" class="photo-remove-btn" title="Remove image" onclick="removeLTPhoto(' + idx + ')">×</button>' +
-      '<div class="photo-size">⚡ ' + p.sizeKb + ' KB</div>' +
+      '<div class="photo-size">' + p.sizeKb + ' KB</div>' +
     '</div>';
   });
   prev.innerHTML = html;
@@ -2357,7 +3241,7 @@ function viewLTReport() {
   var outboxCount = getLTOutbox().length;
   var outboxBanner = outboxCount > 0 ? (
     '<div class="offline-alert-box">' +
-      '<div class="offline-alert-text"><b>📤 ' + outboxCount + ' Outbox Report' + (outboxCount > 1 ? 's' : '') + ' Pending Sync</b><br>Saved safely offline. Will auto-upload when signal returns.</div>' +
+      '<div class="offline-alert-text"><b>' + outboxCount + ' Outbox Report' + (outboxCount > 1 ? 's' : '') + ' Pending Sync</b><br>Saved safely offline. Will auto-upload when signal returns.</div>' +
       '<button class="btn o sm" onclick="syncLTOutbox(true)">Sync Now</button>' +
     '</div>'
   ) : '';
@@ -2411,7 +3295,7 @@ function submitLTTicket() {
     });
     clearLTFormDraft();
     window._LT_PHOTOS = [];
-    toast('📡 Offline: Saved to Outbox! Will auto-upload when signal returns.');
+    toast('Offline: Saved to Outbox! Will auto-upload when signal returns.');
     TAB = 'mine'; render(); load();
     return;
   }
@@ -2427,7 +3311,7 @@ function submitLTTicket() {
     fd.append('photos', p.file, p.name || 'field_photo.jpg');
   });
 
-  toast('📤 Uploading report…');
+  toast('Uploading report…');
   apiForm('/lt/tickets', fd).then(function (d) {
     clearLTFormDraft();
     window._LT_PHOTOS = [];
@@ -2448,7 +3332,7 @@ function submitLTTicket() {
     });
     clearLTFormDraft();
     window._LT_PHOTOS = [];
-    toast('📡 Network dropped during upload. Saved to Outbox for auto-sync!');
+    toast('Network dropped during upload. Saved to Outbox for auto-sync!');
     TAB = 'mine'; render(); load();
   });
 }
@@ -2464,7 +3348,7 @@ function viewLTMine() {
   if (outbox.length > 0) {
     outboxHtml = '<div style="margin-bottom:18px">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
-        '<h4 style="margin:0;font-size:15px;color:#92400E">📤 Offline Outbox (' + outbox.length + ' Pending Sync)</h4>' +
+        '<h4 style="margin:0;font-size:15px;color:#92400E">Offline Outbox (' + outbox.length + ' Pending Sync)</h4>' +
         '<button class="btn o sm" onclick="syncLTOutbox(true)">Sync All Outbox</button>' +
       '</div>' +
       outbox.map(function (item) {
@@ -2472,7 +3356,7 @@ function viewLTMine() {
         return '<div class="outbox-card">' +
           '<div class="outbox-card-header">' +
             '<div><b>' + esc(item.category) + ' Issue</b> · <span class="muted">' + esc(item.queued_at) + '</span></div>' +
-            '<span class="outbox-badge">⏳ Queued for Upload</span>' +
+            '<span class="outbox-badge">Queued for Upload</span>' +
           '</div>' +
           '<div><b>Reasons:</b> ' + esc((item.reason_codes || []).join(', ')) + '</div>' +
           (item.problem ? ('<div style="margin-top:6px">' + esc(item.problem) + '</div>') : '') +
@@ -2493,20 +3377,35 @@ function viewLTMine() {
   var ticketsHtml = LT_TICKETS.map(function (t) {
     var photo = t.photo_path ? ('<img src="/uploads/' + esc(t.photo_path) + '" style="max-width:140px;max-height:140px;border-radius:10px;margin-top:10px;object-fit:cover">') : '';
     var actions = '';
+    var statusBadge = statusPill(t.status);
+    var confirmedNote = '';
+
     if (t.status === 'RESOLVED') {
-      actions = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">' +
-        '<button class="btn g sm" onclick="ltConfirmFixed(' + t.id + ')">✓ Confirmed — It\'s Fixed</button>' +
-        '<button class="btn r sm" onclick="openLTNotResolvedModal(' + t.id + ',\'' + esc(t.ticket_no) + '\')">✕ Not Resolved</button>' +
-        '</div>';
+      actions = '<div style="background:#F0FDF4;border:1.5px solid #86EFAC;border-radius:10px;padding:12px 14px;margin-top:12px">' +
+        '<div style="font-size:13px;font-weight:700;color:#166534;margin-bottom:8px">Support team / CDA has marked this issue as resolved. Please verify:</div>' +
+        '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+          '<button class="btn g sm" onclick="ltConfirmFixed(' + t.id + ')">Confirmed — It\'s Fixed</button>' +
+          '<button class="btn r sm" onclick="openLTNotResolvedModal(' + t.id + ',\'' + esc(t.ticket_no) + '\')">Not Resolved</button>' +
+        '</div>' +
+      '</div>';
+    } else if (t.status === 'CLOSURE_CONFIRMATION') {
+      statusBadge = '<span class="pill p-ok">CONFIRMED BY YOU</span>';
+      confirmedNote = '<div style="margin-top:8px;font-size:12.5px;color:var(--ok);font-weight:600;display:flex;align-items:center;gap:6px">' +
+        '<span>Resolution confirmed by you</span>' +
+        (t.confirmed_at ? ('<span class="muted" style="font-weight:normal">&middot; ' + formatDT(t.confirmed_at) + '</span>') : '') +
+        '<span class="muted" style="font-weight:normal">(Awaiting final closure by Command Center)</span>' +
+      '</div>';
     } else if (t.status === 'CLOSED') {
       actions = '<button class="btn o sm" onclick="ltReopenSame(' + t.id + ')">Reopen — broke again</button>';
     }
+
     return '<div class="card" style="margin-bottom:12px">' +
       '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">' +
       '<div><b>' + esc(t.ticket_no) + '</b><div class="muted">' + esc(t.category_label || '') + (t.created_at ? (' &middot; <span style="font-weight:600;color:var(--ink)">Raised: ' + formatDT(t.created_at) + '</span>') : '') + '</div></div>' +
-      '<div style="text-align:right"><span class="pill p-mut">' + esc((t.status || '').replace(/_/g, ' ')) + '</span> ' + tatPill(t) + '</div></div>' +
+      '<div style="text-align:right">' + statusBadge + ' ' + tatPill(t) + '</div></div>' +
       '<div style="margin-top:8px">' + esc(t.problem || '') + '</div>' +
       (t.resolution ? ('<div class="muted" style="margin-top:8px"><b>Resolution:</b> ' + esc(t.resolution) + '</div>') : '') +
+      confirmedNote +
       photo + (actions ? ('<div style="margin-top:12px">' + actions + '</div>') : '') + '</div>';
   }).join('');
 
@@ -2541,7 +3440,7 @@ function submitLTNotResolved(id) {
   if (!reason) return toast('Please describe why the issue is not resolved');
   api('POST', '/ticket/action', { id: id, action: 'not_resolved', note: reason })
     .then(function () {
-      toast('⚠️ Ticket returned to support team as In Progress');
+      toast('Ticket returned to support team as In Progress');
       closeModal();
       loadLTMine();
     })
@@ -2622,7 +3521,7 @@ function viewAdmin() {
     audit: 'System Administrator Audit Log'
   };
   var bar = '<div class="card" style="margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">' +
-    '<div><div style="font-size:16px;font-weight:800;color:var(--ink)">⚙️ ' + esc(labels[ADMIN_TAB] || 'Admin Portal') + '</div>' +
+    '<div><div style="font-size:16px;font-weight:800;color:var(--ink)">' + esc(labels[ADMIN_TAB] || 'Admin Portal') + '</div>' +
     '<div style="font-size:12.5px;color:var(--ink2);margin-top:2px">Manage global master data, mappings and access permissions</div></div>' +
     '<button class="btn o sm" onclick="loadAdminSection(ADMIN_TAB)">&#8635; Refresh Data</button></div>';
   var body = '';
@@ -3007,15 +3906,15 @@ function viewAdminUsers() {
       '<div class="leadership-title">Leadership &amp; Dispatch Role (Team Executive vs Local Team Lead)</div>' +
       '<div class="leadership-options">' +
         '<label class="leadership-opt selected" id="au_opt_eng_label" onclick="setLeadershipMode(\'au\', \'eng\')">' +
-          '<div><div class="leadership-opt-title">👤 Field Engineer</div><div class="leadership-opt-sub">Standard technician for maintenance &amp; repairs</div></div>' +
+          '<div><div class="leadership-opt-title">Field Engineer</div><div class="leadership-opt-sub">Standard technician for maintenance &amp; repairs</div></div>' +
           '<input type="radio" name="au_leadership_mode" id="au_mode_eng" value="eng" checked>' +
         '</label>' +
         '<label class="leadership-opt" id="au_opt_lead_label" onclick="setLeadershipMode(\'au\', \'lead\')">' +
-          '<div><div class="leadership-opt-title">🟢 Local Team Lead</div><div class="leadership-opt-sub">District ground supervisor (Dispatches local MMU tickets)</div></div>' +
+          '<div><div class="leadership-opt-title">Local Team Lead</div><div class="leadership-opt-sub">District ground supervisor (Dispatches local MMU tickets)</div></div>' +
           '<input type="radio" name="au_leadership_mode" id="au_mode_lead" value="lead">' +
         '</label>' +
         '<label class="leadership-opt" id="au_opt_exec_label" onclick="setLeadershipMode(\'au\', \'exec\')">' +
-          '<div><div class="leadership-opt-title">🟣 Team Executive</div><div class="leadership-opt-sub">Statewide department head (Oversees all 26 districts)</div></div>' +
+          '<div><div class="leadership-opt-title">Team Executive</div><div class="leadership-opt-sub">Statewide department head (Oversees all 26 districts)</div></div>' +
           '<input type="radio" name="au_leadership_mode" id="au_mode_exec" value="exec">' +
         '</label>' +
       '</div>' +
@@ -3108,17 +4007,17 @@ function syncDynamicUserForm(prefix) {
 
     if (role === 'CC_MANAGER') {
       cardClass += ' global-exec';
-      badgeHtml = '<span class="pill pill-global">👑 Global Command Executive</span>';
+      badgeHtml = '<span class="pill pill-global">Global Command Executive</span>';
       titleHtml = 'Global Command Center Administrator';
       descHtml = 'Has statewide supervisory access across all 26 districts, departments, Daily Monitoring KPI dashboard, and master settings.';
     } else if (role === 'CALL_TAKER') {
       cardClass += ' global-exec';
-      badgeHtml = '<span class="pill pill-global">📞 Central Call Taker</span>';
+      badgeHtml = '<span class="pill pill-global">Central Call Taker</span>';
       titleHtml = '104 Inbound Breakdown Agent';
       descHtml = 'Handles incoming breakdown calls from MMU doctors and field staff, registering and auto-routing emergency tickets.';
     } else if (isLT) {
       cardClass += ' lt-tech';
-      badgeHtml = '<span class="pill pill-eng">🔬 Field Lab Technician</span>';
+      badgeHtml = '<span class="pill pill-eng">Field Lab Technician</span>';
       titleHtml = 'MMU Diagnostics Operator' + (distName ? (' (' + esc(distName) + ' District)') : '');
       descHtml = 'Operates mobile diagnostic analyzers. Setting District, Mandal, and MMU Vehicle pre-fills their self-service incident reporting portal.';
     } else {
@@ -3126,23 +4025,23 @@ function syncDynamicUserForm(prefix) {
       if (isMgr) {
         if (distId) {
           cardClass += ' local-lead';
-          badgeHtml = '<span class="pill pill-lead">🟢 Local Team Lead · ' + esc(distName) + '</span>';
+          badgeHtml = '<span class="pill pill-lead">Local Team Lead · ' + esc(distName) + '</span>';
           titleHtml = esc(distName) + ' District ' + esc(roleName) + ' Lead';
           descHtml = 'Ground supervisor for <b>' + esc(distName) + ' District</b>. Receives 80% SLA alerts for ' + esc(distName) + ' MMUs and coordinates local ' + esc(roleName) + ' engineers in this district.';
         } else {
           cardClass += ' statewide-exec';
-          badgeHtml = '<span class="pill pill-exec">🟣 Statewide Team Executive</span>';
+          badgeHtml = '<span class="pill pill-exec">Statewide Team Executive</span>';
           titleHtml = 'Statewide ' + esc(roleName) + ' Executive';
           descHtml = 'Statewide Head overseeing the entire <b>' + esc(roleName) + ' department across all 26 districts</b> in Andhra Pradesh. Receives statewide 80% SLA warnings and delegates tickets statewide.';
         }
       } else {
         cardClass += ' standard-eng';
         if (distId) {
-          badgeHtml = '<span class="pill pill-eng">👤 Field Engineer · ' + esc(distName) + '</span>';
+          badgeHtml = '<span class="pill pill-eng">Field Engineer · ' + esc(distName) + '</span>';
           titleHtml = esc(roleName) + ' (' + esc(distName) + ' District)';
           descHtml = 'Field technician assigned to resolve equipment and diagnostic issues in ' + esc(distName) + ' district.';
         } else {
-          badgeHtml = '<span class="pill pill-eng">👤 Statewide Field Engineer</span>';
+          badgeHtml = '<span class="pill pill-eng">Statewide Field Engineer</span>';
           titleHtml = 'Statewide ' + esc(roleName);
           descHtml = 'Field engineer available for statewide assignment and mobile diagnostic support across Andhra Pradesh.';
         }
@@ -3255,15 +4154,15 @@ function openEditUserModal(id) {
       '<div class="leadership-title">Leadership &amp; Dispatch Role (Team Executive vs Local Team Lead)</div>' +
       '<div class="leadership-options">' +
         '<label class="leadership-opt ' + (currentMode === 'eng' ? 'selected' : '') + '" id="medit_opt_eng_label" onclick="setLeadershipMode(\'medit\', \'eng\')">' +
-          '<div><div class="leadership-opt-title">👤 Field Engineer</div><div class="leadership-opt-sub">Standard technician for maintenance &amp; repairs</div></div>' +
+          '<div><div class="leadership-opt-title">Field Engineer</div><div class="leadership-opt-sub">Standard technician for maintenance &amp; repairs</div></div>' +
           '<input type="radio" name="medit_leadership_mode" id="medit_mode_eng" value="eng" ' + (currentMode === 'eng' ? 'checked' : '') + '>' +
         '</label>' +
         '<label class="leadership-opt ' + (currentMode === 'lead' ? 'selected' : '') + '" id="medit_opt_lead_label" onclick="setLeadershipMode(\'medit\', \'lead\')">' +
-          '<div><div class="leadership-opt-title">🟢 Local Team Lead</div><div class="leadership-opt-sub">District ground supervisor (Dispatches local MMU tickets)</div></div>' +
+          '<div><div class="leadership-opt-title">Local Team Lead</div><div class="leadership-opt-sub">District ground supervisor (Dispatches local MMU tickets)</div></div>' +
           '<input type="radio" name="medit_leadership_mode" id="medit_mode_lead" value="lead" ' + (currentMode === 'lead' ? 'checked' : '') + '>' +
         '</label>' +
         '<label class="leadership-opt ' + (currentMode === 'exec' ? 'selected' : '') + '" id="medit_opt_exec_label" onclick="setLeadershipMode(\'medit\', \'exec\')">' +
-          '<div><div class="leadership-opt-title">🟣 Team Executive</div><div class="leadership-opt-sub">Statewide department head (Oversees all 26 districts)</div></div>' +
+          '<div><div class="leadership-opt-title">Team Executive</div><div class="leadership-opt-sub">Statewide department head (Oversees all 26 districts)</div></div>' +
           '<input type="radio" name="medit_leadership_mode" id="medit_mode_exec" value="exec" ' + (currentMode === 'exec' ? 'checked' : '') + '>' +
         '</label>' +
       '</div>' +
@@ -3364,11 +4263,11 @@ window.addEventListener('hashchange', function () {
 });
 
 window.addEventListener('online', function () {
-  toast('🟢 Cellular signal / Internet connection restored');
+  toast('Cellular signal / Internet connection restored');
   syncLTOutbox(false);
 });
 window.addEventListener('offline', function () {
-  toast('⚠️ Offline / No cellular connection. Reports will save to Outbox.');
+  toast('Offline / No cellular connection. Reports will save to Outbox.');
 });
 
 // Dismiss popovers, notifications, and mobile menu when clicking or tapping anywhere outside
