@@ -431,7 +431,8 @@ def test_webhook(db: Session = Depends(get_db), current_user: dict = Depends(req
 # ---------- routing rules (L1-L4 hierarchy, local mapping) ----------
 
 def _routing_rule_out(r):
-    return {"code": r.code, "category_code": r.category_code, "zone_id": r.zone_id,
+    return {"code": r.code, "category_code": r.category_code, "subcategory_code": r.subcategory_code,
+            "district_id": r.district_id, "zone_id": r.zone_id,
             "l1_team_code": r.l1_team_code, "l1_username": r.l1_username, "l2_username": r.l2_username,
             "l3_username": r.l3_username, "l4_username": r.l4_username, "is_active": r.is_active}
 
@@ -441,10 +442,11 @@ def list_routing_rules(db: Session = Depends(get_db), current_user: dict = Depen
 
 @router.post("/routing-rules")
 def create_routing_rule(b: RoutingRuleIn, db: Session = Depends(get_db), current_user: dict = Depends(require_admin)):
-    r = crud_routing_rule.create_rule(db, b.code, b.category_code, b.zone_id, b.l1_team_code,
-                                       b.l1_username, b.l2_username, b.l3_username, b.l4_username)
+    r = crud_routing_rule.create_rule(db, b.code, b.category_code, b.subcategory_code, b.district_id, b.zone_id,
+                                       b.l1_team_code, b.l1_username, b.l2_username, b.l3_username, b.l4_username)
     log_admin_event(db, current_user, "ROUTING_RULE_CREATED", "routing_rule", r.code,
-                     f"category={r.category_code}, zone_id={r.zone_id}")
+                     f"category={r.category_code}, subcategory={r.subcategory_code}, "
+                     f"district_id={r.district_id}, zone_id={r.zone_id}")
     return _routing_rule_out(r)
 
 @router.put("/routing-rules/{code}")

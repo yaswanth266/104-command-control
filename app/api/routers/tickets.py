@@ -8,7 +8,7 @@ from app.crud.crud_ticket import get_tickets, get_ticket, create_ticket as inser
 from app.services.sla_engine import resolve_ticket_sla
 from app.models.ticket import Ticket
 from app.crud.crud_event import get_events_by_ticket, create_event
-from app.crud.crud_category import get_category_map, resolve_team, get_category
+from app.crud.crud_category import get_category_map, route_ticket, get_category
 from app.crud.crud_reason import get_reason
 from app.crud.crud_ticket_type import get_ticket_type
 from app.crud.crud_priority import get_priority
@@ -47,8 +47,7 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     if current_user["role"] not in ("CALL_TAKER", "CC_MANAGER"):
         raise HTTPException(403, "Only the Call Taker or Global Team Executive may register a call")
     cat = b.category.strip().upper()
-    r = resolve_team(db, cat, b.mandal_id)
-    if r is None:
+    if not get_category(db, cat):
         raise HTTPException(400, "Unknown issue category")
 
     impact_code = (b.impact_code or "").strip().upper() or None
@@ -100,6 +99,11 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
             raise HTTPException(400, "That sub-category does not belong to the selected category")
 
     cat_row = get_category(db, cat)
+
+    r = route_ticket(db, cat, subcategory_code=subcat.code if subcat else None,
+                      district_id=b.district_id, mandal_id=b.mandal_id)
+    if r is None:
+        raise HTTPException(400, "Unknown issue category")
 
     sla = resolve_ticket_sla(db, ticket_type, cat, subcat.code if subcat else None, priority, now=now)
 
@@ -157,7 +161,9 @@ def create_ticket(b: TicketIn, db: Session = Depends(get_db), current_user: dict
     dispatch_ticket_event(db, "ticket.created", db_ticket, current_user["username"])
     # L1-L4 hierarchy (phase 4): the ticket already exists (BR-013) - this is
     # a separate, best-effort step that can never fail ticket creation.
-    resolve_and_apply(db, db_ticket)
+    # Reuse the Routing Rule route_ticket() already matched (phase 5) so
+    # ticket.team and the L1 occupant can never disagree.
+    resolve_and_apply(db, db_ticket, rule=r["rule"])
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "owner": r["owner"],
             "tat_mins": sla["tat_mins"], "priority": priority, "vip": is_vip}

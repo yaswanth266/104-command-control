@@ -186,6 +186,8 @@ class UserUpdate(BaseModel):
 class RoutingRuleIn(BaseModel):
     code: str
     category_code: str
+    subcategory_code: Optional[str] = None
+    district_id: Optional[int] = None
     zone_id: Optional[int] = None
     l1_team_code: Optional[str] = None
     l1_username: Optional[str] = None

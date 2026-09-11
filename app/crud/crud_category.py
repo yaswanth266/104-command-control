@@ -37,27 +37,52 @@ def get_lt_visible_categories(db: Session):
     stays hidden by default."""
     return db.query(Category).filter(Category.is_active == True, Category.visible_to_lt == True).order_by(Category.label).all()
 
-def resolve_team(db: Session, category_code: str, mandal_id: int = None):
-    """Routing decision for a NEW ticket: {"team":..., "owner":..., "zone_id":...}
-    or None if the category is unknown/inactive. If the category is flagged
-    route_by_zone and the ticket's Mandal resolves to an active Zone, that
-    Zone's team wins; otherwise (most categories, or no Mandal given, or the
-    Mandal has no Zone configured yet) falls back to the category's own
-    default team - identical to today's behavior. This fallback is what keeps
-    routing working correctly before/while the geo hierarchy is populated."""
+def route_ticket(db: Session, category_code: str, subcategory_code: str = None,
+                  district_id: int = None, mandal_id: int = None):
+    """Routing decision for a NEW ticket: {"team", "owner", "zone_id", "rule"}
+    or None if the category is unknown/inactive. Precedence:
+    1. A matching Routing Rule's l1_team_code (see crud_routing_rule.match_rule
+       - category+sub-category+district/zone specificity), so the team a
+       ticket is filed against and its L1 occupant can never disagree.
+    2. If the category is flagged route_by_zone and the ticket's Mandal
+       resolves to an active Zone, that Zone's team.
+    3. The category's own default team - identical to pre-Phase-5 behavior.
+    This fallback chain is what keeps routing working correctly before/while
+    the geo hierarchy and routing rules are populated. The matched `rule` is
+    returned so callers (ticket creation, hierarchy.resolve_hierarchy) reuse
+    it instead of matching a second time."""
     c = get_category(db, category_code)
     if not c or not c.is_active:
         return None
-    result = {"team": c.team_code, "owner": c.default_owner, "zone_id": None}
+
+    zone_id = None
     if c.route_by_zone and mandal_id:
         row = (db.query(Mandal, Zone)
                  .join(Zone, Mandal.zone_id == Zone.id)
                  .filter(Mandal.id == mandal_id, Mandal.is_active == True, Zone.is_active == True)
                  .first())
         if row:
-            mandal, zone = row
-            result = {"team": zone.team_code, "owner": c.default_owner, "zone_id": zone.id}
-    return result
+            zone_id = row[1].id
+
+    from app.crud.crud_routing_rule import match_rule
+    rule = match_rule(db, category_code, zone_id=zone_id, district_id=district_id,
+                       subcategory_code=subcategory_code)
+
+    if rule and rule.l1_team_code:
+        return {"team": rule.l1_team_code, "owner": c.default_owner, "zone_id": zone_id, "rule": rule}
+    if zone_id:
+        zone = db.query(Zone).filter(Zone.id == zone_id).first()
+        return {"team": zone.team_code, "owner": c.default_owner, "zone_id": zone_id, "rule": rule}
+    return {"team": c.team_code, "owner": c.default_owner, "zone_id": zone_id, "rule": rule}
+
+def resolve_team(db: Session, category_code: str, mandal_id: int = None):
+    """Back-compat wrapper over route_ticket() for callers that don't yet
+    pass sub-category/district (e.g. the routing preview on Register Call
+    before the form is fully filled in). Drops the "rule" key."""
+    result = route_ticket(db, category_code, mandal_id=mandal_id)
+    if result is None:
+        return None
+    return {"team": result["team"], "owner": result["owner"], "zone_id": result["zone_id"]}
 
 def _require_active_team(db: Session, team_code: str) -> str:
     team_code = (team_code or "").strip().upper()

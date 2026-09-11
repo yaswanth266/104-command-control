@@ -11,7 +11,7 @@ from app.crud.crud_ticket import create_ticket as insert_ticket
 from app.services.sla_engine import resolve_ticket_sla
 from app.crud.crud_event import create_event
 from app.crud.crud_attachment import create_attachment
-from app.crud.crud_category import resolve_team, get_category, get_category_map
+from app.crud.crud_category import route_ticket, get_category, get_category_map
 from app.crud.crud_team import get_team_map
 from app.crud.crud_user import get_user_by_username
 from app.crud.crud_vehicle import get_vehicle
@@ -82,7 +82,8 @@ def create_lt_ticket(
     if priority not in ("P1", "P2"):
         raise HTTPException(400, "Priority must be P1 or P2 for field-raised tickets")
 
-    route = resolve_team(db, cat, lt_user.mandal_id)
+    route = route_ticket(db, cat, subcategory_code=reasons[0].code,
+                          district_id=lt_user.district_id, mandal_id=lt_user.mandal_id)
     if route is None:
         raise HTTPException(400, "Unknown issue category")
 
@@ -175,7 +176,7 @@ def create_lt_ticket(
                  new_status=db_ticket.status)
     notify_new_ticket(db, db_ticket)
     dispatch_ticket_event(db, "ticket.created", db_ticket, current_user["username"])
-    resolve_and_apply(db, db_ticket)
+    resolve_and_apply(db, db_ticket, rule=route.get("rule"))
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": route["team"], "priority": priority}
 

@@ -115,8 +115,10 @@ def update_hierarchy_config(db: Session, patch: dict) -> dict:
 
 # ---------- LocalMappingProvider ----------
 
-def _resolve_local(db: Session, ticket) -> list:
-    rule = match_rule(db, ticket.category, ticket.zone_id)
+def _resolve_local(db: Session, ticket, rule=None) -> list:
+    if rule is None:
+        rule = match_rule(db, ticket.category, zone_id=ticket.zone_id, district_id=ticket.district_id,
+                           subcategory_code=ticket.subcategory_code)
     team_map = get_team_map(db)
 
     l1_team_code = (rule.l1_team_code if rule and rule.l1_team_code else ticket.team)
@@ -204,9 +206,11 @@ def _resolve_external_api(db: Session, ticket, cfg: dict):
 
 # ---------- orchestration ----------
 
-def resolve_hierarchy(db: Session, ticket):
+def resolve_hierarchy(db: Session, ticket, rule=None):
     """(chain, mode_used). Never raises - an EXTERNAL_API failure falls back
-    to LOCAL so the ticket always gets a usable chain."""
+    to LOCAL so the ticket always gets a usable chain. `rule` lets a caller
+    that already matched a Routing Rule (e.g. crud_category.route_ticket, at
+    ticket-creation time) hand it in so it's never matched twice."""
     cfg = get_hierarchy_config(db)
     if cfg["mode"] == "EXTERNAL_API" and cfg.get("url"):
         request_payload = None
@@ -221,7 +225,7 @@ def resolve_hierarchy(db: Session, ticket):
             create_exception(db, ticket.id, "API_FAILURE", str(exc))
             logger.warning("Hierarchy API failed for ticket %s, falling back to local mapping: %s", ticket.id, exc)
 
-    chain = _resolve_local(db, ticket)
+    chain = _resolve_local(db, ticket, rule=rule)
     log_attempt(db, ticket.id, "LOCAL", {"category": ticket.category, "zone_id": ticket.zone_id}, None, "SUCCESS")
     return chain, "LOCAL"
 
@@ -238,12 +242,12 @@ def apply_hierarchy_to_ticket(db: Session, ticket, chain: list, source: str):
     db.commit()
 
 
-def resolve_and_apply(db: Session, ticket):
+def resolve_and_apply(db: Session, ticket, rule=None):
     """Entry point for ticket-creation call sites - swallows everything so a
     hierarchy bug can never fail ticket creation (BR-013; the ticket already
-    exists by the time this is called)."""
+    exists by the time this is called). `rule` - see resolve_hierarchy()."""
     try:
-        chain, mode = resolve_hierarchy(db, ticket)
+        chain, mode = resolve_hierarchy(db, ticket, rule=rule)
         apply_hierarchy_to_ticket(db, ticket, chain, mode)
     except Exception:
         logger.exception("Hierarchy resolution failed outright for ticket %s", ticket.id)

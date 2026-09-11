@@ -13,8 +13,14 @@ function loadAdminRoutingRules() {
       ADMIN_CATEGORIES = c;
       api('GET', '/admin/zones').then(function (z) {
         ADMIN_ZONES = z;
-        ADMIN_LOADED.routingrules = true;
-        if (ADMIN_TAB === 'routingrules') render();
+        api('GET', '/admin/districts').then(function (dist) {
+          ADMIN_DISTRICTS = dist;
+          api('GET', '/admin/reasons').then(function (r) {
+            ADMIN_REASONS = r;
+            ADMIN_LOADED.routingrules = true;
+            if (ADMIN_TAB === 'routingrules') render();
+          });
+        });
       });
     });
   });
@@ -23,8 +29,12 @@ function loadAdminRoutingRules() {
 function viewAdminRoutingRules() {
   var catLabel = function (code) { var c = ADMIN_CATEGORIES.find(function (x) { return x.code === code; }); return c ? c.label : code; };
   var zoneLabel = function (id) { var z = (ADMIN_ZONES || []).find(function (x) { return x.id === id; }); return z ? z.name : ''; };
+  var distLabel = function (id) { var d = (ADMIN_DISTRICTS || []).find(function (x) { return x.id === id; }); return d ? d.name : ''; };
+  var subcatLabel = function (code) { var r = (ADMIN_REASONS || []).find(function (x) { return x.code === code; }); return r ? r.label : code; };
   var rows = ADMIN_ROUTING_RULES.map(function (r) {
     return '<tr><td><b>' + esc(r.code) + '</b></td><td>' + esc(catLabel(r.category_code)) + '</td>' +
+      '<td>' + esc(r.subcategory_code ? subcatLabel(r.subcategory_code) : '— any —') + '</td>' +
+      '<td>' + esc(distLabel(r.district_id) || '— any —') + '</td>' +
       '<td>' + esc(zoneLabel(r.zone_id) || '— any —') + '</td>' +
       '<td>' + esc(r.l1_username || (r.l1_team_code || '')) + '</td><td>' + esc(r.l2_username || '') + '</td>' +
       '<td>' + esc(r.l3_username || '') + '</td><td>' + esc(r.l4_username || '') + '</td>' +
@@ -32,14 +42,18 @@ function viewAdminRoutingRules() {
       '<td><button class="btn ' + (r.is_active ? 'r' : 'g') + ' sm" onclick="adminToggleRoutingRule(\'' + r.code + '\',' + (!r.is_active) + ')">' + (r.is_active ? 'Deactivate' : 'Activate') + '</button></td></tr>';
   }).join('');
   var catOpts = ADMIN_CATEGORIES.filter(function (c) { return c.is_active; }).map(function (c) { return '<option value="' + c.code + '">' + esc(c.label) + '</option>'; }).join('');
+  var subcatOpts = '<option value="">— Any sub-category —</option>' + (ADMIN_REASONS || []).filter(function (r) { return r.is_active; }).map(function (r) { return '<option value="' + r.code + '" data-cat="' + r.category_code + '">' + esc(r.label) + '</option>'; }).join('');
+  var distOpts = '<option value="">— Any district —</option>' + (ADMIN_DISTRICTS || []).filter(function (d) { return d.is_active; }).map(function (d) { return '<option value="' + d.id + '">' + esc(d.name) + '</option>'; }).join('');
   var zoneOpts = '<option value="">— Any zone —</option>' + (ADMIN_ZONES || []).filter(function (z) { return z.is_active; }).map(function (z) { return '<option value="' + z.id + '">' + esc(z.name) + '</option>'; }).join('');
 
   return '<div class="card" style="margin-bottom:14px"><h4 style="margin-bottom:4px;font-size:15px">Routing Rules</h4>' +
-    '<div class="muted" style="margin-bottom:10px">Explicit L1-L4 mapping for a Category (optionally narrowed to one Zone) - used when the Hierarchy Source is set to Local Mapping. Any level left blank falls back to the default ladder: L1 = the category\'s routed team, L2 = that team\'s manager, L3 = L2\'s reporting manager, L4 = the Global Team Executive.</div>' +
-    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Category</th><th>Zone</th><th>L1</th><th>L2</th><th>L3</th><th>L4</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
+    '<div class="muted" style="margin-bottom:10px">Explicit L1-L4 mapping for a Category, optionally narrowed to a Sub-Category, District and/or Zone - used when the Hierarchy Source is set to Local Mapping. The most specific active match wins (Sub-Category beats Category-only; District beats Zone). Any level left blank falls back to the default ladder: L1 = the category\'s routed team, L2 = that team\'s manager, L3 = L2\'s reporting manager, L4 = the Global Team Executive.</div>' +
+    '<div style="overflow-x:auto"><table><thead><tr><th>Code</th><th>Category</th><th>Sub-Category</th><th>District</th><th>Zone</th><th>L1</th><th>L2</th><th>L3</th><th>L4</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div></div>' +
     '<div class="card"><h4 style="margin-bottom:10px;font-size:14px">Add routing rule</h4><div class="grid3">' +
     '<div class="fld"><label>Code</label><input id="rr_code" placeholder="MACHINE-NORTH"></div>' +
     '<div class="fld"><label>Category</label><select id="rr_category">' + catOpts + '</select></div>' +
+    '<div class="fld"><label>Sub-Category (optional)</label><select id="rr_subcategory">' + subcatOpts + '</select></div>' +
+    '<div class="fld"><label>District (optional)</label><select id="rr_district">' + distOpts + '</select></div>' +
     '<div class="fld"><label>Zone (optional)</label><select id="rr_zone">' + zoneOpts + '</select></div>' +
     '<div class="fld"><label>L1 username (optional)</label><input id="rr_l1" placeholder="username"></div>' +
     '<div class="fld"><label>L2 username (optional)</label><input id="rr_l2" placeholder="username"></div>' +
@@ -51,10 +65,13 @@ function viewAdminRoutingRules() {
 
 function adminCreateRoutingRule() {
   var code = gv('rr_code'), category = document.getElementById('rr_category').value;
+  var subcategory = document.getElementById('rr_subcategory').value;
+  var district = document.getElementById('rr_district').value;
   var zone = document.getElementById('rr_zone').value;
   if (!code) return toast('Code is required');
   api('POST', '/admin/routing-rules', {
-    code: code, category_code: category, zone_id: zone ? +zone : undefined,
+    code: code, category_code: category, subcategory_code: subcategory || undefined,
+    district_id: district ? +district : undefined, zone_id: zone ? +zone : undefined,
     l1_username: gv('rr_l1') || undefined, l2_username: gv('rr_l2') || undefined,
     l3_username: gv('rr_l3') || undefined, l4_username: gv('rr_l4') || undefined,
   }).then(function () { toast('Routing rule added'); loadAdminRoutingRules(); })

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.database import get_db
 from app.core.config import INTAKE_API_KEY
 from app.crud.crud_ticket import create_ticket
-from app.crud.crud_category import resolve_team, get_category
+from app.crud.crud_category import route_ticket, get_category
 from app.crud.crud_settings import detect_vip
 from app.crud.crud_ticket_type import get_ticket_type
 from app.crud.crud_event import create_event
@@ -50,7 +50,9 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
           "P1": "P1", "P2": "P2", "P3": "P3", "P4": "P4"}.get(pr, "P3")
           
     mandal_id = _safe_int(body.get("mandal_id"))
-    r = resolve_team(db, cat, mandal_id) or resolve_team(db, "OTHER", mandal_id)
+    district_id = _safe_int(body.get("district_id"))
+    r = (route_ticket(db, cat, district_id=district_id, mandal_id=mandal_id)
+         or route_ticket(db, "OTHER", district_id=district_id, mandal_id=mandal_id))
     now = datetime.datetime.now()
 
     # ticket_type is optional and best-effort here - an external caller that
@@ -75,7 +77,7 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
         mmu_vehicle=body.get("mmu_vehicle") or body.get("vehicle"),
         vehicle_id=_safe_int(body.get("vehicle_id")),
         district=body.get("district"),
-        district_id=_safe_int(body.get("district_id")),
+        district_id=district_id,
         mandal_id=mandal_id,
         zone_id=r["zone_id"],
         caller_name=body.get("raised_by_name"),
@@ -109,6 +111,6 @@ def intake(body: dict, db: Session = Depends(get_db), x_intake_key: Optional[str
     # subscribed external system consumes CCC's classification directly rather
     # than maintaining its own inbound mapping.
     dispatch_ticket_event(db, "ticket.created", db_ticket, actor_info["username"])
-    resolve_and_apply(db, db_ticket)
+    resolve_and_apply(db, db_ticket, rule=r.get("rule"))
 
     return {"ok": True, "ticket_no": db_ticket.ticket_no, "id": db_ticket.id, "team": r["team"], "priority": pr, "category": cat, "vip": is_vip}
