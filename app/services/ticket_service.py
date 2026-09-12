@@ -1,3 +1,4 @@
+
 import datetime
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -24,7 +25,7 @@ ALLOWED_FROM = {
     "confirm":      {"RESOLVED"},
     "not_resolved": {"RESOLVED"},
     "close":        {"CLOSURE_CONFIRMATION"},
-    "reopen":       {"CLOSED"},
+    "reopen":       {"CLOSED", "CLOSURE_CONFIRMATION"},
 }
 TARGET_STATUS = {
     "acknowledge":  "ACKNOWLEDGED",
@@ -58,11 +59,15 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
     act = action_in.action.lower()
     role = user["role"]
     own = (role == ticket.team) or role in ("CC_MANAGER", "CALL_TAKER")
-    # LT self-service: the LT who raised this ticket may confirm-fixed or
+    # LT self-service: the LT who raised or confirmed this ticket may confirm-fixed or
     # reopen-still-broken on it themselves (see the "confirm"/"reopen"
     # branches below), even though they're not "own" (not a member of
     # whichever team the ticket is currently routed to).
-    is_originating_lt = role == "LT" and ticket.created_by == user["username"]
+    is_originating_lt = role == "LT" and (
+        ticket.created_by == user["username"]
+        or (ticket.confirmed_by and ticket.confirmed_by.strip().lower() in (user.get("name", "").strip().lower(), user["username"].strip().lower()))
+        or (user.get("vehicle_id") and ticket.vehicle_id == user.get("vehicle_id"))
+    )
 
     def setf(action_name: str, detail: str, webhook_event: str = None, **kwargs):
         old_status = ticket.status
@@ -297,19 +302,25 @@ def process_ticket_action(db: Session, ticket: Ticket, user: dict, action_in: Ac
 
     elif act == "reopen":
         if role not in ("CC_MANAGER", "CALL_TAKER") and not is_originating_lt:
-            raise HTTPException(403, "Only the Global Team Executive, Call Taker, or the LT who raised this ticket may reopen")
+            raise HTTPException(403, "Only the Global Team Executive, Call Taker, or the LT who raised/confirmed this ticket may reopen")
         _require_transition(ticket, act)
         reason = (action_in.note or "").strip()
         if not reason:
             raise HTTPException(400, "SOP: reopening a ticket must record the reason")
         window_hours = get_sla_config(db)["reopen_window_hours"]
-        if ticket.closed_at and (now - ticket.closed_at) > datetime.timedelta(hours=window_hours):
-            raise HTTPException(409, f"SOP: this ticket closed over {window_hours}h ago and can no longer be "
+        ref_time = ticket.closed_at if ticket.status == "CLOSED" else ticket.confirmed_at
+        if not ref_time:
+            ref_time = ticket.confirmed_at or ticket.closed_at
+        if ref_time and (now - ref_time) > datetime.timedelta(hours=window_hours):
+            raise HTTPException(409, f"SOP: this ticket was confirmed/closed over {window_hours}h ago and can no longer be "
                                       "reopened - register a new ticket instead so history stays accurate")
         setf("REOPENED", f"Reopened by {user['name']} ({user['role']}): {reason}",
              "ticket.status_changed",
              status="IN_PROGRESS",
              closed_at=None,
+             resolved_at=None,
+             confirmed_by=None,
+             confirmed_at=None,
              reopened=(ticket.reopened or 0) + 1)
         notify_not_resolved(db, ticket, reason)
     else:

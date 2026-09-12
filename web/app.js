@@ -1653,11 +1653,19 @@ function renderT(t, evs) {
     if (t.status === 'CLOSURE_CONFIRMATION') A.push('<button class="btn" onclick="act(' + t.id + ',\'close\')">Close ticket</button>');
     if (t.status !== 'CLOSED' && ME.role !== 'CC_MANAGER') A.push('<button class="btn r" onclick="act(' + t.id + ',\'escalate\')">Escalate to Global Team Executive</button>');
   }
-  if ((ME.role === 'CC_MANAGER' || ME.role === 'CALL_TAKER') && t.status === 'CLOSED') {
-    var closedDt = parseDT(t.closed_at), windowH = (META.sla && META.sla.reopen_window_hours) || 24;
-    var withinWindow = closedDt ? ((Date.now() - closedDt.getTime()) / 3600000 <= windowH) : true;
-    if (withinWindow) A.push('<button class="btn o" onclick="reopenT(' + t.id + ')">Reopen</button>');
-    else A.push('<span class="muted">Reopen window (' + windowH + 'h) has passed - register a new ticket</span>');
+  var isLtOwner = (ME.role === 'LT' && (t.created_by === ME.username || t.confirmed_by === ME.name || (ME.vehicle_id && t.vehicle_id === ME.vehicle_id)));
+  if ((ME.role === 'CC_MANAGER' || ME.role === 'CALL_TAKER' || isLtOwner) && (t.status === 'CLOSED' || t.status === 'CLOSURE_CONFIRMATION')) {
+    var refTimeStr = t.confirmed_at || t.closed_at;
+    var refDt = parseDT(refTimeStr), windowH = (META && META.sla && META.sla.reopen_window_hours) || 24;
+    var elapsedHours = refDt ? ((Date.now() - refDt.getTime()) / 3600000) : 0;
+    var withinWindow = refDt ? (elapsedHours <= windowH) : true;
+    if (withinWindow) {
+      var remHours = Math.max(0, Math.floor(windowH - elapsedHours));
+      var remMins = Math.max(0, Math.round(((windowH - elapsedHours) - remHours) * 60));
+      A.push('<button class="btn o" onclick="openLTReopenModal(' + t.id + ',\'' + esc(t.ticket_no) + '\')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> Reopen Ticket (' + remHours + 'h ' + remMins + 'm left)</button>');
+    } else {
+      A.push('<span class="muted" style="font-size:12px">Reopen window (' + windowH + 'h after confirmation) has passed - register a new ticket</span>');
+    }
   }
   var reroute = (ME.role === 'CC_MANAGER' || ME.role === 'CALL_TAKER') ?
     ('<div class="fld" style="margin-top:12px"><label>Re-route to team</label><select id="a_team">' +
@@ -3498,8 +3506,35 @@ function viewLTMine() {
         (t.confirmed_at ? ('<span class="muted" style="font-weight:normal">&middot; ' + formatDT(t.confirmed_at) + '</span>') : '') +
         '<span class="muted" style="font-weight:normal">(Awaiting final closure by Command Center)</span>' +
       '</div>';
+      var refDt = parseDT(t.confirmed_at || t.closed_at);
+      var windowH = (META && META.sla && META.sla.reopen_window_hours) || 24;
+      var elapsedH = refDt ? ((Date.now() - refDt.getTime()) / 3600000) : 0;
+      var withinWindow = refDt ? (elapsedH <= windowH) : true;
+      if (withinWindow) {
+        var remH = Math.max(0, Math.floor(windowH - elapsedH));
+        var remM = Math.max(0, Math.round(((windowH - elapsedH) - remH) * 60));
+        actions = '<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+          '<button class="btn o sm" onclick="openLTReopenModal(' + t.id + ',\'' + esc(t.ticket_no) + '\')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> Reopen — Broke Again</button>' +
+          '<span class="muted" style="font-size:12px">Eligible to reopen on or before 24h after confirmation (' + remH + 'h ' + remM + 'm left)</span>' +
+        '</div>';
+      } else {
+        actions = '<span class="muted" style="font-size:12px">Reopen window (' + windowH + 'h) has passed &middot; Register new ticket</span>';
+      }
     } else if (t.status === 'CLOSED') {
-      actions = '<button class="btn o sm" onclick="ltReopenSame(' + t.id + ')">Reopen — broke again</button>';
+      var refDt = parseDT(t.confirmed_at || t.closed_at);
+      var windowH = (META && META.sla && META.sla.reopen_window_hours) || 24;
+      var elapsedH = refDt ? ((Date.now() - refDt.getTime()) / 3600000) : 0;
+      var withinWindow = refDt ? (elapsedH <= windowH) : true;
+      if (withinWindow) {
+        var remH = Math.max(0, Math.floor(windowH - elapsedH));
+        var remM = Math.max(0, Math.round(((windowH - elapsedH) - remH) * 60));
+        actions = '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">' +
+          '<button class="btn o sm" onclick="openLTReopenModal(' + t.id + ',\'' + esc(t.ticket_no) + '\')"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:middle;margin-right:4px"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg> Reopen — Broke Again</button>' +
+          '<span class="muted" style="font-size:12px">Eligible to reopen on or before 24h after confirmation (' + remH + 'h ' + remM + 'm left)</span>' +
+        '</div>';
+      } else {
+        actions = '<span class="muted" style="font-size:12px">Reopen window (' + windowH + 'h) has expired &middot; Register new ticket if issue recurs</span>';
+      }
     }
 
     return '<div class="card" style="margin-bottom:12px">' +
@@ -3556,10 +3591,47 @@ function ltConfirmFixed(id) {
   api('POST', '/ticket/action', { id: id, action: 'confirm', confirmed_by: ME.name }).then(function () { toast('Marked as fixed — thank you'); loadLTMine(); })
     .catch(function (e) { toast(typeof e === 'string' ? e : 'Could not confirm'); });
 }
+
+function openLTReopenModal(id, ticketNo) {
+  document.getElementById('modal').innerHTML = '<div class="ovl" onclick="if(event.target===this)closeModal()"><div class="sheet" style="max-width:540px">' +
+    '<div class="sh" style="background:#ea580c;color:#fff"><div><div style="font-size:17px;font-weight:800">Reopen Ticket</div>' +
+    '<div style="font-size:12.5px;opacity:.9;margin-top:2px">Ticket: <b>' + esc(ticketNo || ('#' + id)) + '</b> &middot; Return to In Progress</div></div>' +
+    '<button class="x" onclick="closeModal()">&times;</button></div>' +
+    '<div class="sb">' +
+      '<p style="margin:0 0 14px;color:#4b5563;font-size:13.5px;line-height:1.5">If the issue has recurred or the equipment has malfunctioned again within 24 hours of confirmation, you may reopen this ticket. It will immediately return to <b>In Progress</b> and notify the assigned technical team.</p>' +
+      '<div class="fld">' +
+        '<label style="font-weight:700">Reason / Observations (Required) *</label>' +
+        '<textarea id="lt_reopen_reason" rows="4" placeholder="Describe in detail what is still failing or broke again..." style="width:100%;box-sizing:border-box"></textarea>' +
+      '</div>' +
+      '<div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;border-top:1px solid var(--line);padding-top:14px">' +
+        '<button class="btn o" onclick="closeModal()">Cancel</button>' +
+        '<button class="btn o" style="background:#ea580c;color:#fff;border-color:#ea580c" onclick="submitLTReopen(' + id + ')">Confirm &amp; Reopen Ticket</button>' +
+      '</div>' +
+    '</div></div></div>';
+  setTimeout(function () {
+    var el = document.getElementById('lt_reopen_reason');
+    if (el) el.focus();
+  }, 50);
+}
+
+function submitLTReopen(id) {
+  var reasonEl = document.getElementById('lt_reopen_reason');
+  var reason = reasonEl ? reasonEl.value.trim() : '';
+  if (!reason) return toast('Please describe why the ticket is being reopened');
+  api('POST', '/ticket/action', { id: id, action: 'reopen', note: reason })
+    .then(function () {
+      toast('Ticket reopened and returned to team as In Progress');
+      closeModal();
+      if (TAB === 'lt') loadLTMine();
+      else { closeT(); load(); }
+    })
+    .catch(function (e) {
+      toast(typeof e === 'string' ? e : 'Could not reopen ticket');
+    });
+}
+
 function ltReopenSame(id) {
-  var reason = prompt('What\'s still wrong? (required):'); if (reason === null) return; if (!reason.trim()) return toast('A reason is required to reopen');
-  api('POST', '/ticket/action', { id: id, action: 'reopen', note: reason.trim() }).then(function () { toast('Reopened'); loadLTMine(); })
-    .catch(function (e) { toast(typeof e === 'string' ? e : 'Could not reopen'); });
+  openLTReopenModal(id, '#' + id);
 }
 
 /* ---------- admin portal ----------
